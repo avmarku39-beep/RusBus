@@ -1,0 +1,3106 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Автобус №32 · Калининград 3D</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --safe-top: env(safe-area-inset-top, 0px);
+            --safe-bottom: env(safe-area-inset-bottom, 0px);
+            --safe-left: env(safe-area-inset-left, 0px);
+            --safe-right: env(safe-area-inset-right, 0px);
+        }
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0b1324;
+            font-family: 'Inter', sans-serif;
+            touch-action: none;
+            overscroll-behavior: none;
+        }
+        #game-canvas {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+            touch-action: none;
+            cursor: grab;
+        }
+        #game-canvas:active {
+            cursor: grabbing;
+        }
+
+        /* Полупрозрачное матовое стекло для минималистичного HUD */
+        .hud-glass {
+            background: rgba(10, 17, 32, 0.56);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        /* Янтарное светодиодное табло автоинформатора */
+        .informator-led {
+            background: rgba(12, 14, 20, 0.78);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(251, 191, 36, 0.42);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), inset 0 0 12px rgba(245, 158, 11, 0.12);
+            font-family: 'JetBrains Mono', monospace;
+            color: #fbbf24;
+            text-shadow: 0 0 8px rgba(251, 191, 36, 0.45);
+            transition: opacity 0.45s ease, transform 0.45s ease;
+        }
+        .informator-led.hidden-led {
+            opacity: 0;
+            transform: translateY(-6px) scale(0.97);
+            pointer-events: none;
+        }
+
+        /* Контейнер руля (снизу слева) */
+        #steering-zone {
+            position: fixed;
+            left: max(14px, calc(var(--safe-left) + 12px));
+            bottom: max(14px, calc(var(--safe-bottom) + 12px));
+            width: clamp(134px, 24vmin, 178px);
+            height: clamp(134px, 24vmin, 178px);
+            z-index: 30;
+            touch-action: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #steering-wheel-visual {
+            width: 100%;
+            height: 100%;
+            will-change: transform;
+            filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.55));
+            pointer-events: none;
+        }
+
+        /* Правый блок: АКПП + Педали */
+        #right-controls {
+            position: fixed;
+            right: max(14px, calc(var(--safe-right) + 12px));
+            bottom: max(14px, calc(var(--safe-bottom) + 12px));
+            z-index: 30;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 10px;
+            touch-action: none;
+        }
+
+        /* Селектор АКПП D / N / R */
+        .gear-selector {
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            border-radius: 16px;
+            background: rgba(10, 16, 30, 0.66);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+        }
+        .gear-btn {
+            width: clamp(38px, 6.5vmin, 46px);
+            height: clamp(34px, 5.5vmin, 40px);
+            border-radius: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            font-size: clamp(14px, 2.5vmin, 17px);
+            color: rgba(255, 255, 255, 0.48);
+            background: transparent;
+            border: 1px solid transparent;
+            transition: all 0.18s ease;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .gear-btn.active-D {
+            color: #ecfdf5;
+            background: linear-gradient(180deg, rgba(16, 185, 129, 0.88), rgba(5, 150, 105, 0.88));
+            border-color: rgba(110, 231, 183, 0.75);
+            box-shadow: 0 0 14px rgba(16, 185, 129, 0.55);
+        }
+        .gear-btn.active-N {
+            color: #fefce8;
+            background: linear-gradient(180deg, rgba(245, 158, 11, 0.84), rgba(217, 119, 6, 0.84));
+            border-color: rgba(252, 211, 77, 0.72);
+            box-shadow: 0 0 14px rgba(245, 158, 11, 0.5);
+        }
+        .gear-btn.active-R {
+            color: #fef2f2;
+            background: linear-gradient(180deg, rgba(239, 68, 68, 0.88), rgba(185, 28, 28, 0.88));
+            border-color: rgba(252, 165, 165, 0.75);
+            box-shadow: 0 0 14px rgba(239, 68, 68, 0.55);
+        }
+
+        /* Педали тормоза и газа */
+        .pedals-row {
+            display: flex;
+            align-items: flex-end;
+            gap: clamp(10px, 2vmin, 16px);
+        }
+        .pedal {
+            position: relative;
+            border-radius: 16px;
+            background: linear-gradient(165deg, rgba(226, 232, 240, 0.28) 0%, rgba(51, 65, 85, 0.52) 55%, rgba(15, 23, 42, 0.74) 100%);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1.5px solid rgba(255, 255, 255, 0.28);
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.48), inset 0 2px 5px rgba(255, 255, 255, 0.22);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 8px;
+            transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease;
+            touch-action: none;
+            cursor: pointer;
+            overflow: hidden;
+        }
+        .pedal-ribs {
+            width: 78%;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-evenly;
+            padding: 4px 0;
+            pointer-events: none;
+        }
+        .pedal-rib {
+            height: 4px;
+            border-radius: 99px;
+            background: rgba(15, 23, 42, 0.65);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+        }
+        .pedal-label {
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+        }
+
+        #pedal-brake {
+            width: clamp(72px, 14.2vmin, 94px);
+            height: clamp(86px, 16vmin, 108px);
+            border-color: rgba(251, 113, 133, 0.45);
+        }
+        #pedal-brake.pressed {
+            transform: scale(0.93) translateY(5px) perspective(240px) rotateX(12deg);
+            border-color: rgba(244, 63, 94, 0.95);
+            box-shadow: 0 3px 10px rgba(244, 63, 94, 0.45), inset 0 2px 10px rgba(244, 63, 94, 0.35);
+        }
+
+        #pedal-gas {
+            width: clamp(60px, 11.8vmin, 76px);
+            height: clamp(116px, 21.5vmin, 148px);
+            border-color: rgba(52, 211, 153, 0.45);
+        }
+        #pedal-gas.pressed {
+            transform: scale(0.93) translateY(6px) perspective(240px) rotateX(14deg);
+            border-color: rgba(16, 185, 129, 0.95);
+            box-shadow: 0 3px 12px rgba(16, 185, 129, 0.45), inset 0 2px 10px rgba(16, 185, 129, 0.35);
+        }
+
+        /* Цифровой спидометр по центру снизу */
+        #speed-hud {
+            position: fixed;
+            left: 50%;
+            bottom: max(16px, calc(var(--safe-bottom) + 12px));
+            transform: translateX(-50%);
+            z-index: 25;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+        .speed-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 800;
+            font-size: clamp(32px, 6.2vmin, 46px);
+            line-height: 0.95;
+            letter-spacing: -0.03em;
+            color: #ffffff;
+            text-shadow: 0 4px 18px rgba(0, 0, 0, 0.65);
+        }
+
+        /* Контекстная кнопка Дверей */
+        #door-action-btn {
+            pointer-events: auto;
+            transition: opacity 0.25s ease, transform 0.25s ease;
+        }
+        #door-action-btn.hidden-btn {
+            opacity: 0;
+            transform: translateY(12px) scale(0.9);
+            pointer-events: none;
+        }
+        @keyframes soft-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.65); }
+            50% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+        }
+        .door-pulse {
+            animation: soft-pulse 1.5s infinite;
+        }
+
+        /* На узких вертикальных телефонах поднимаем спидометр выше руля и педалей */
+        @media (max-width: 460px) and (orientation: portrait) {
+            #speed-hud {
+                bottom: max(176px, calc(var(--safe-bottom) + 170px));
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 3D Viewport Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Верхняя зона: компактная плашка остановки + выезжающее LED-табло информатора -->
+    <div id="top-bar" class="fixed left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-1.5 transition-opacity duration-300 opacity-0 pointer-events-none"
+         style="top: max(10px, calc(var(--safe-top) + 8px)); width: min(92vw, 480px);">
+        <!-- Нажмите на плашку остановки, чтобы повторить объявление информатора -->
+        <button id="stop-pill" type="button" title="Нажмите для повтора объявления"
+                class="hud-glass pointer-events-auto rounded-full px-3.5 py-1.5 flex items-center gap-2 shadow-lg active:scale-95 transition cursor-pointer max-w-[calc(100vw-116px)]">
+            <span class="bg-emerald-500 text-slate-950 font-black text-xs px-2 py-0.5 rounded-full leading-none shrink-0">32</span>
+            <span id="stop-info-text" class="text-white/95 font-semibold text-xs sm:text-sm truncate">
+                Силикатный завод · на месте
+            </span>
+        </button>
+
+        <!-- Светодиодное табло автоинформатора (появляется только во время объявления) -->
+        <div id="informator-pill" class="informator-led hidden-led rounded-2xl px-3.5 py-1.5 flex items-center gap-2 max-w-[92vw] sm:max-w-[460px]">
+            <span class="text-amber-400 text-xs shrink-0 animate-pulse">📢</span>
+            <span id="informator-text" class="text-[11px] sm:text-xs font-bold leading-snug line-clamp-2">
+                Остановка: Силикатный завод
+            </span>
+        </div>
+    </div>
+
+    <!-- Две миниатюрные круглые кнопки справа сверху: Камера и Звук/Информатор -->
+    <div id="top-right-btns" class="fixed z-30 flex items-center gap-2 transition-opacity duration-300 opacity-0 pointer-events-none"
+         style="top: max(10px, calc(var(--safe-top) + 8px)); right: max(12px, calc(var(--safe-right) + 10px));">
+        <button id="btn-sound" type="button" aria-label="Звук и автоинформатор"
+                class="hud-glass w-10 h-10 rounded-full flex items-center justify-center text-base text-white/90 active:scale-90 transition shadow-lg cursor-pointer">
+            🔊
+        </button>
+        <button id="btn-camera" type="button" aria-label="Сменить вид камеры"
+                class="hud-glass w-10 h-10 rounded-full flex items-center justify-center text-base text-white/90 active:scale-90 transition shadow-lg cursor-pointer">
+            📷
+        </button>
+    </div>
+
+    <!-- Спидометр (с индикатором передачи) + Контекстная кнопка Дверей -->
+    <div id="speed-hud" class="transition-opacity duration-300 opacity-0">
+        <button id="door-action-btn" type="button"
+                class="hidden-btn door-pulse bg-emerald-500/90 hover:bg-emerald-400 active:scale-95 text-slate-950 font-extrabold text-xs sm:text-sm px-5 py-2.5 rounded-full shadow-xl border border-emerald-200/70 flex items-center gap-2 cursor-pointer">
+            <span>🚪</span>
+            <span id="door-btn-text">Открыть двери</span>
+        </button>
+
+        <div class="hud-glass rounded-2xl px-4 py-1.5 flex items-baseline gap-2 shadow-xl">
+            <span id="hud-gear-badge" class="font-mono font-extrabold text-xs px-1.5 py-0.5 rounded-md bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 self-center">D1</span>
+            <span id="speed-digits" class="speed-value">0</span>
+            <span class="text-[11px] font-bold uppercase tracking-wider text-white/60">км/ч</span>
+        </div>
+    </div>
+
+    <!-- Интерактивный руль (снизу слева) -->
+    <div id="steering-zone" class="transition-opacity duration-300 opacity-0 pointer-events-none">
+        <svg id="steering-wheel-visual" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="rimGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#334155"/>
+                    <stop offset="45%" stop-color="#1e293b"/>
+                    <stop offset="100%" stop-color="#0f172a"/>
+                </linearGradient>
+                <linearGradient id="spokeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="#475569"/>
+                    <stop offset="100%" stop-color="#1e293b"/>
+                </linearGradient>
+                <radialGradient id="hubGrad" cx="40%" cy="35%" r="65%">
+                    <stop offset="0%" stop-color="#334155"/>
+                    <stop offset="100%" stop-color="#0b1120"/>
+                </radialGradient>
+            </defs>
+            <circle cx="100" cy="100" r="92" fill="rgba(15,23,42,0.20)" stroke="rgba(255,255,255,0.14)" stroke-width="1.5"/>
+            <path d="M22 92 L78 96 L78 112 L22 108 Z" fill="url(#spokeGrad)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+            <path d="M178 92 L122 96 L122 112 L178 108 Z" fill="url(#spokeGrad)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+            <path d="M88 122 L82 178 L96 178 L100 130 L104 178 L118 178 L112 122 Z" fill="url(#spokeGrad)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+            <circle cx="100" cy="100" r="80" fill="none" stroke="url(#rimGrad)" stroke-width="18"/>
+            <circle cx="100" cy="100" r="88.5" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="1.5"/>
+            <circle cx="100" cy="100" r="71.5" fill="none" stroke="rgba(0,0,0,0.55)" stroke-width="1.5"/>
+            <!-- Верхняя жёлтая метка центра -->
+            <rect x="95" y="11" width="10" height="18" rx="3" fill="#f59e0b" stroke="#fef3c7" stroke-width="1"/>
+            <path d="M21 76 A80 80 0 0 0 21 124" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="4" stroke-linecap="round"/>
+            <path d="M179 76 A80 80 0 0 1 179 124" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="100" cy="103" r="28" fill="url(#hubGrad)" stroke="rgba(255,255,255,0.25)" stroke-width="2"/>
+            <circle cx="100" cy="103" r="19" fill="none" stroke="rgba(16,185,129,0.55)" stroke-width="1.5"/>
+            <text x="100" y="108" text-anchor="middle" fill="#34d399" font-family="Inter, sans-serif" font-weight="900" font-size="14">32</text>
+        </svg>
+    </div>
+
+    <!-- Правый блок: АКПП (D / N / R) + Педали (Тормоз и Газ) -->
+    <div id="right-controls" class="transition-opacity duration-300 opacity-0 pointer-events-none">
+        <div class="gear-selector" role="group" aria-label="Коробка передач">
+            <button id="gear-D" type="button" class="gear-btn active-D" data-gear="D">D</button>
+            <button id="gear-N" type="button" class="gear-btn" data-gear="N">N</button>
+            <button id="gear-R" type="button" class="gear-btn" data-gear="R">R</button>
+        </div>
+
+        <div class="pedals-row">
+            <div id="pedal-brake" class="pedal" aria-label="Тормоз">
+                <div class="pedal-ribs">
+                    <div class="pedal-rib"></div>
+                    <div class="pedal-rib"></div>
+                    <div class="pedal-rib"></div>
+                    <div class="pedal-rib"></div>
+                </div>
+                <span class="pedal-label text-rose-200">Тормоз</span>
+            </div>
+
+            <div id="pedal-gas" class="pedal" aria-label="Газ">
+                <div class="pedal-ribs">
+                    <div class="pedal-rib"></div>
+                    <div class="pedal-rib"></div>
+                    <div class="pedal-rib"></div>
+                    <div class="pedal-rib"></div>
+                    <div class="pedal-rib"></div>
+                </div>
+                <span class="pedal-label text-emerald-200">Газ</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Чистый стартовый экран поверх живой 3D-сцены Калининграда -->
+    <div id="start-overlay" class="fixed inset-0 z-50 flex items-center justify-center p-5 bg-slate-950/35 backdrop-blur-[4px] transition-opacity duration-500">
+        <div class="hud-glass rounded-3xl px-7 py-7 max-w-sm w-full text-center shadow-2xl border border-white/20">
+            <div class="inline-flex items-center justify-center bg-emerald-500 text-slate-950 font-black text-2xl w-14 h-14 rounded-2xl shadow-lg mb-3">
+                32
+            </div>
+            <h1 class="text-white text-2xl font-black tracking-tight">Маршрут №32 • Калининград</h1>
+            <p class="text-emerald-200/90 text-sm font-medium mt-1">
+                Силикатный завод — Улица Артиллерийская
+            </p>
+            <p class="text-slate-300/85 text-xs mt-3 leading-relaxed">
+                Крутите экран, чтобы вращать камеру • Двойной тап — сброс
+            </p>
+            <button id="btn-start" type="button"
+                    class="mt-5 w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-95 text-slate-950 font-black text-lg py-3.5 rounded-2xl shadow-xl transition cursor-pointer">
+                Поехали
+            </button>
+        </div>
+    </div>
+
+    <!-- Окно завершения маршрута -->
+    <div id="finish-overlay" class="fixed inset-0 z-50 hidden items-center justify-center p-5 bg-slate-950/60 backdrop-blur-md">
+        <div class="hud-glass rounded-3xl px-7 py-7 max-w-sm w-full text-center shadow-2xl border border-emerald-400/50">
+            <div class="text-4xl mb-2">🏁</div>
+            <h2 class="text-white text-2xl font-black">Рейс №32 завершён</h2>
+            <p class="text-slate-300 text-sm mt-1">Конечная: Улица Артиллерийская</p>
+            <div class="mt-4 flex justify-center gap-6 text-sm text-white/90">
+                <div>
+                    <div class="text-xs text-slate-400">Остановки</div>
+                    <div id="final-stops" class="text-xl font-black text-emerald-400">10 / 10</div>
+                </div>
+                <div class="w-px bg-white/15"></div>
+                <div>
+                    <div class="text-xs text-slate-400">Пассажиры</div>
+                    <div id="final-pax" class="text-xl font-black text-amber-300">0</div>
+                </div>
+            </div>
+            <button id="btn-restart" type="button"
+                    class="mt-6 w-full bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-black text-base py-3.5 rounded-2xl shadow-xl transition cursor-pointer">
+                Новый рейс
+            </button>
+        </div>
+    </div>
+
+    <script>
+    (function () {
+        'use strict';
+
+        // =========================================================================
+        // 1. МАРШРУТ №32 КАЛИНИНГРАД И ГЕОМЕТРИЯ ИЗОГНУТОЙ ТРАССЫ
+        // =========================================================================
+        const ROUTE_STOPS = [
+            { id: 0, name: 'Силикатный завод', speechName: 'Силикатный завод', z: -110, waiting: 7, landmark: 'factory' },
+            { id: 1, name: 'Ул. Карташева', speechName: 'Улица Карташева', z: -380, waiting: 6, landmark: 'kartasheva' },
+            { id: 2, name: 'Балтийское шоссе', speechName: 'Балтийское шоссе', z: -650, waiting: 5, landmark: 'baltiyskoye' },
+            { id: 3, name: 'Центральный парк', speechName: 'Центральный парк', z: -930, waiting: 9, landmark: 'central_park' },
+            { id: 4, name: 'Драмтеатр', speechName: 'Драмтеатр', z: -1210, waiting: 8, landmark: 'drama_theater' },
+            { id: 5, name: 'Калининградский зоопарк', speechName: 'Калининградский зоопарк', z: -1490, waiting: 10, landmark: 'zoo' },
+            { id: 6, name: 'Площадь Победы', speechName: 'Площадь Победы', z: -1780, waiting: 12, landmark: 'victory_square' },
+            { id: 7, name: 'Литовский вал', speechName: 'Литовский вал', z: -2060, waiting: 7, landmark: 'kings_gate' },
+            { id: 8, name: 'Ул. Гагарина', speechName: 'Улица Юрия Гагарина', z: -2340, waiting: 6, landmark: 'gagarina' },
+            { id: 9, name: 'Ул. Артиллерийская', speechName: 'Улица Артиллерийская', z: -2620, waiting: 0, landmark: 'terminus' }
+        ];
+
+        const ROAD_WIDTH = 15.6;
+        const HALF_ROAD = ROAD_WIDTH * 0.5;
+        // Автобус стартует прямо на начальной остановке «Силикатный завод»
+        const START_Z = -108;
+        const END_Z = -2700;
+
+        // Плавная кривая проспектов Калининграда
+        function roadCenterX(z) {
+            return 22 * Math.sin(z * 0.0024) + 11 * Math.sin(z * 0.0056 + 0.6);
+        }
+        function roadSlopeDXDZ(z) {
+            return 22 * 0.0024 * Math.cos(z * 0.0024) + 11 * 0.0056 * Math.cos(z * 0.0056 + 0.6);
+        }
+        function roadAngle(z) {
+            return Math.atan(roadSlopeDXDZ(z));
+        }
+        function roadPoint(z, lateralOffset) {
+            const cx = roadCenterX(z);
+            const a = roadAngle(z);
+            return {
+                x: cx + Math.cos(a) * lateralOffset,
+                z: z - Math.sin(a) * lateralOffset,
+                angle: a
+            };
+        }
+
+        // =========================================================================
+        // 2. ПРОЦЕДУРНЫЙ ЗВУК ДИЗЕЛЬНОГО АВТОБУСА, ПНЕВМАТИКИ И ГОНГА (WEB AUDIO API)
+        // =========================================================================
+        class BusAudioEngine {
+            constructor() {
+                this.ctx = null;
+                this.started = false;
+                this.muted = false;
+                this.masterGain = null;
+                this.oscMain = null;
+                this.oscSub = null;
+                this.engineFilter = null;
+                this.engineGain = null;
+                this.lastHissTime = 0;
+            }
+
+            start() {
+                if (this.started) {
+                    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+                    return;
+                }
+                try {
+                    const AC = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AC();
+
+                    this.masterGain = this.ctx.createGain();
+                    this.masterGain.gain.value = this.muted ? 0 : 1;
+                    this.masterGain.connect(this.ctx.destination);
+
+                    // Тяжёлый низкий дизель МАЗ-203 / ЛиАЗ-5292
+                    this.oscMain = this.ctx.createOscillator();
+                    this.oscSub = this.ctx.createOscillator();
+                    this.oscMain.type = 'sawtooth';
+                    this.oscSub.type = 'triangle';
+                    this.oscMain.frequency.value = 42;
+                    this.oscSub.frequency.value = 21;
+
+                    this.engineFilter = this.ctx.createBiquadFilter();
+                    this.engineFilter.type = 'lowpass';
+                    this.engineFilter.frequency.value = 120;
+                    this.engineFilter.Q.value = 1.6;
+
+                    this.engineGain = this.ctx.createGain();
+                    this.engineGain.gain.value = 0.058;
+
+                    this.oscMain.connect(this.engineFilter);
+                    this.oscSub.connect(this.engineFilter);
+                    this.engineFilter.connect(this.engineGain);
+                    this.engineGain.connect(this.masterGain);
+
+                    this.oscMain.start();
+                    this.oscSub.start();
+                    this.started = true;
+                } catch (e) {
+                    console.warn('Web Audio unavailable:', e);
+                }
+            }
+
+            setMuted(flag) {
+                this.muted = flag;
+                if (this.masterGain && this.ctx) {
+                    this.masterGain.gain.setTargetAtTime(flag ? 0 : 1, this.ctx.currentTime, 0.05);
+                }
+            }
+
+            // Передаём реальные нормализованные обороты (0..1) из 5-ступенчатой АКПП
+            updateEngine(rpmNorm, throttle, gear) {
+                if (!this.started || !this.ctx) return;
+                const now = this.ctx.currentTime;
+                const clampedRpm = Math.max(0, Math.min(1.1, rpmNorm));
+
+                const baseFreq = 40 + clampedRpm * 58;
+                this.oscMain.frequency.setTargetAtTime(baseFreq, now, 0.11);
+                this.oscSub.frequency.setTargetAtTime(baseFreq * 0.5, now, 0.11);
+                this.engineFilter.frequency.setTargetAtTime(110 + clampedRpm * 230 + (throttle && gear !== 'N' ? 40 : 0), now, 0.12);
+                this.engineGain.gain.setTargetAtTime(0.05 + clampedRpm * 0.048, now, 0.12);
+            }
+
+            // Мягкий пшик пневматических тормозов или дверей
+            playAirHiss(duration = 0.34, freq = 1450, volume = 0.11) {
+                if (!this.started || !this.ctx || this.muted) return;
+                const now = this.ctx.currentTime;
+                if (now - this.lastHissTime < 0.25) return;
+                this.lastHissTime = now;
+
+                const size = Math.floor(this.ctx.sampleRate * duration);
+                const buf = this.ctx.createBuffer(1, size, this.ctx.sampleRate);
+                const ch = buf.getChannelData(0);
+                for (let i = 0; i < size; i++) {
+                    ch[i] = (Math.random() * 2 - 1) * Math.exp(-i / (size * 0.38));
+                }
+                const src = this.ctx.createBufferSource();
+                src.buffer = buf;
+
+                const filter = this.ctx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(freq, now);
+                filter.Q.value = 1.15;
+
+                const gain = this.ctx.createGain();
+                gain.gain.setValueAtTime(volume, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+                src.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.masterGain);
+                src.start(now);
+            }
+
+            playDoorSound(opening) {
+                this.lastHissTime = 0;
+                this.playAirHiss(0.48, opening ? 1850 : 1320, 0.14);
+                if (!opening && this.started && this.ctx && !this.muted) {
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const g = this.ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(860, now);
+                    g.gain.setValueAtTime(0.045, now);
+                    g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                    osc.connect(g);
+                    g.connect(this.masterGain);
+                    osc.start(now);
+                    osc.stop(now + 0.31);
+                }
+            }
+
+            // Тёплый электронный 2- или 3-тоновый гонг автоинформатора «Калининград-ГорТранс»
+            playInformatorChime(variant = 'arrival') {
+                if (!this.started || !this.ctx || this.muted) return;
+                const now = this.ctx.currentTime;
+                // arrival: восходящий мягкий 3-тоновый (E5 -> G#5 -> B5), departure: спокойный 2-тоновый (A5 -> F#5)
+                const notes = variant === 'departure'
+                    ? [880.0, 739.99]
+                    : variant === 'welcome'
+                        ? [587.33, 739.99, 880.0]
+                        : [659.25, 830.61, 987.77];
+
+                notes.forEach((freq, idx) => {
+                    const t0 = now + idx * 0.16;
+                    const osc1 = this.ctx.createOscillator();
+                    const osc2 = this.ctx.createOscillator();
+                    osc1.type = 'sine';
+                    osc2.type = 'triangle';
+                    osc1.frequency.setValueAtTime(freq, t0);
+                    osc2.frequency.setValueAtTime(freq * 2, t0);
+
+                    const g1 = this.ctx.createGain();
+                    const g2 = this.ctx.createGain();
+                    g1.gain.setValueAtTime(0.0001, t0);
+                    g1.gain.linearRampToValueAtTime(0.11, t0 + 0.018);
+                    g1.gain.exponentialRampToValueAtTime(0.0008, t0 + 0.48);
+
+                    g2.gain.setValueAtTime(0.0001, t0);
+                    g2.gain.linearRampToValueAtTime(0.025, t0 + 0.012);
+                    g2.gain.exponentialRampToValueAtTime(0.0005, t0 + 0.25);
+
+                    osc1.connect(g1);
+                    osc2.connect(g2);
+                    g1.connect(this.masterGain);
+                    g2.connect(this.masterGain);
+
+                    osc1.start(t0);
+                    osc2.start(t0);
+                    osc1.stop(t0 + 0.5);
+                    osc2.stop(t0 + 0.28);
+                });
+            }
+
+            playBoardChime() {
+                if (!this.started || !this.ctx || this.muted) return;
+                const now = this.ctx.currentTime;
+                [1174.6, 1567.9].forEach((f, idx) => {
+                    const osc = this.ctx.createOscillator();
+                    const g = this.ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(f, now + idx * 0.07);
+                    g.gain.setValueAtTime(0.04, now + idx * 0.07);
+                    g.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.07 + 0.15);
+                    osc.connect(g);
+                    g.connect(this.masterGain);
+                    osc.start(now + idx * 0.07);
+                    osc.stop(now + idx * 0.07 + 0.16);
+                });
+            }
+        }
+        const busAudio = new BusAudioEngine();
+
+        // =========================================================================
+        // 3. АВТОИНФОРМАТОР КАЛИНИНГРАД-ГОРТРАНС (WEB SPEECH API + LED-ТАБЛО)
+        // =========================================================================
+        class BusInformator {
+            constructor() {
+                this.muted = false;
+                this.voice = null;
+                this.pillEl = null;
+                this.textEl = null;
+                this.hideTimer = null;
+                this.speakTimer = null;
+                this.lastAnnouncementText = '';
+                this.reminderPlayed = false;
+
+                if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+                    this.loadVoices();
+                    window.speechSynthesis.onvoiceschanged = () => this.loadVoices();
+                }
+            }
+
+            initDOM() {
+                this.pillEl = document.getElementById('informator-pill');
+                this.textEl = document.getElementById('informator-text');
+            }
+
+            loadVoices() {
+                try {
+                    const voices = window.speechSynthesis.getVoices();
+                    if (!voices || !voices.length) return;
+                    const ruVoices = voices.filter(v => (v.lang || '').toLowerCase().startsWith('ru'));
+                    // Предпочитаем наиболее естественные системные русские голоса (Google, Milena, Yuri, Irina, Pavel)
+                    this.voice =
+                        ruVoices.find(v => /milena|google|irina|katya|yuri|pavel/i.test(v.name)) ||
+                        ruVoices.find(v => v.lang.toLowerCase() === 'ru-ru') ||
+                        ruVoices[0] ||
+                        null;
+                } catch (e) {
+                    console.warn('Speech voices load warning:', e);
+                }
+            }
+
+            // Разблокировка speechSynthesis при первом пользовательском нажатии («Поехали»)
+            unlock() {
+                if (!('speechSynthesis' in window)) return;
+                try {
+                    this.loadVoices();
+                    window.speechSynthesis.cancel();
+                    const silent = new SpeechSynthesisUtterance(' ');
+                    silent.lang = 'ru-RU';
+                    silent.volume = 0;
+                    window.speechSynthesis.speak(silent);
+                } catch (e) {
+                    // Безопасный откат на визуальное табло
+                }
+            }
+
+            setMuted(flag) {
+                this.muted = flag;
+                if (flag && 'speechSynthesis' in window) {
+                    try { window.speechSynthesis.cancel(); } catch (e) {}
+                }
+            }
+
+            showLed(text, durationMs) {
+                if (!this.pillEl || !this.textEl) return;
+                clearTimeout(this.hideTimer);
+                this.textEl.textContent = text;
+                this.pillEl.classList.remove('hidden-led');
+                this.hideTimer = setTimeout(() => {
+                    this.pillEl.classList.add('hidden-led');
+                }, durationMs);
+            }
+
+            announce(text, chimeVariant = 'arrival') {
+                this.lastAnnouncementText = text;
+                clearTimeout(this.speakTimer);
+                clearTimeout(this.hideTimer);
+
+                const estReadMs = Math.max(4200, Math.min(11500, text.length * 76 + 1600));
+                this.showLed(text, estReadMs);
+
+                if (this.muted) return;
+
+                busAudio.playInformatorChime(chimeVariant);
+
+                if (!('speechSynthesis' in window)) return;
+
+                const delayMs = chimeVariant === 'departure' ? 360 : 520;
+                this.speakTimer = setTimeout(() => {
+                    if (this.muted) return;
+                    try {
+                        window.speechSynthesis.cancel();
+                        this.loadVoices();
+                        const utt = new SpeechSynthesisUtterance(text);
+                        utt.lang = 'ru-RU';
+                        if (this.voice) utt.voice = this.voice;
+                        utt.rate = 0.96;
+                        utt.pitch = 1.0;
+                        utt.volume = 1.0;
+                        utt.onend = () => {
+                            clearTimeout(this.hideTimer);
+                            this.hideTimer = setTimeout(() => {
+                                if (this.pillEl) this.pillEl.classList.add('hidden-led');
+                            }, 1300);
+                        };
+                        window.speechSynthesis.speak(utt);
+                    } catch (e) {
+                        console.warn('TTS speak warning:', e);
+                    }
+                }, delayMs);
+            }
+
+            announceStart() {
+                this.announce(
+                    'Уважаемые пассажиры! Автобус следует по маршруту номер тридцать два: Силикатный завод — Улица Артиллерийская. Следующая остановка — Улица Карташева.',
+                    'welcome'
+                );
+            }
+
+            announceArrival(stop) {
+                if (stop.id === ROUTE_STOPS.length - 1) {
+                    this.announce(
+                        'Конечная остановка: Улица Артиллерийская. Просьба освободить салон. Не забывайте свои вещи.',
+                        'arrival'
+                    );
+                } else {
+                    this.announce(`Остановка: ${stop.speechName}.`, 'arrival');
+                }
+            }
+
+            announceDeparture(nextStop) {
+                if (!nextStop) return;
+                this.announce(
+                    `Осторожно, двери закрываются. Следующая остановка — ${nextStop.speechName}.`,
+                    'departure'
+                );
+            }
+
+            announceReminder() {
+                this.reminderPlayed = true;
+                this.announce(
+                    'Уважаемые пассажиры, оплачивайте проезд своевременно. Во время движения держитесь за поручни.',
+                    'departure'
+                );
+            }
+
+            replayCurrent(nextStop, inZoneStop) {
+                if (inZoneStop) {
+                    this.announceArrival(inZoneStop);
+                } else if (nextStop) {
+                    this.announce(`Следующая остановка — ${nextStop.speechName}.`, 'arrival');
+                } else if (this.lastAnnouncementText) {
+                    this.announce(this.lastAnnouncementText, 'arrival');
+                }
+            }
+        }
+        const informator = new BusInformator();
+
+        // =========================================================================
+        // 4. ПРОЦЕДУРНЫЕ CANVAS-ТЕКСТУРЫ (АСФАЛЬТ, ПЛИТКА, ФАСАДЫ, КРЫШИ, ТАБЛО)
+        // =========================================================================
+        const Textures = {};
+
+        function makeCanvas(w, h) {
+            const c = document.createElement('canvas');
+            c.width = w;
+            c.height = h;
+            return { c, ctx: c.getContext('2d') };
+        }
+
+        function createProceduralTextures(maxAniso) {
+            // 1. Асфальт с мелким зерном, трещинами и разметкой 4 полос
+            {
+                const { c, ctx } = makeCanvas(512, 512);
+                ctx.fillStyle = '#333b48';
+                ctx.fillRect(0, 0, 512, 512);
+
+                for (let i = 0; i < 9000; i++) {
+                    const shade = 38 + Math.floor(Math.random() * 34);
+                    ctx.fillStyle = `rgb(${shade},${shade + 4},${shade + 10})`;
+                    ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
+                }
+
+                [64, 192, 320, 448].forEach(lx => {
+                    const g = ctx.createLinearGradient(lx - 28, 0, lx + 28, 0);
+                    g.addColorStop(0, 'rgba(15,20,28,0)');
+                    g.addColorStop(0.5, 'rgba(15,20,28,0.22)');
+                    g.addColorStop(1, 'rgba(15,20,28,0)');
+                    ctx.fillStyle = g;
+                    ctx.fillRect(lx - 28, 0, 56, 512);
+                });
+
+                ctx.strokeStyle = 'rgba(15, 20, 28, 0.45)';
+                ctx.lineWidth = 1.2;
+                for (let k = 0; k < 6; k++) {
+                    ctx.beginPath();
+                    let sx = Math.random() * 512;
+                    let sy = Math.random() * 512;
+                    ctx.moveTo(sx, sy);
+                    for (let s = 0; s < 5; s++) {
+                        sx += (Math.random() - 0.5) * 45;
+                        sy += (Math.random() - 0.5) * 45;
+                        ctx.lineTo(sx, sy);
+                    }
+                    ctx.stroke();
+                }
+
+                ctx.fillStyle = 'rgba(241, 245, 249, 0.82)';
+                ctx.fillRect(10, 0, 6, 512);
+                ctx.fillRect(496, 0, 6, 512);
+
+                ctx.fillStyle = 'rgba(248, 250, 252, 0.9)';
+                ctx.fillRect(249, 0, 5, 512);
+                ctx.fillRect(258, 0, 5, 512);
+
+                ctx.fillStyle = 'rgba(241, 245, 249, 0.82)';
+                for (let y = 20; y < 512; y += 128) {
+                    ctx.fillRect(128, y, 5, 62);
+                    ctx.fillRect(380, y, 5, 62);
+                }
+
+                const tex = new THREE.CanvasTexture(c);
+                tex.wrapS = THREE.ClampToEdgeWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.anisotropy = maxAniso;
+                Textures.asphalt = tex;
+            }
+
+            // 2. Калининградская тротуарная плитка и брусчатка
+            {
+                const { c, ctx } = makeCanvas(256, 256);
+                ctx.fillStyle = '#9ea6b2';
+                ctx.fillRect(0, 0, 256, 256);
+                const tileW = 32, tileH = 16;
+                for (let y = 0; y < 256; y += tileH) {
+                    const offset = ((y / tileH) % 2) * (tileW / 2);
+                    for (let x = -tileW; x < 256 + tileW; x += tileW) {
+                        const v = 148 + Math.floor(Math.random() * 24);
+                        const tint = Math.random() > 0.8 ? 10 : 0;
+                        ctx.fillStyle = `rgb(${v + tint},${v},${v - 4})`;
+                        ctx.fillRect(x + offset + 1, y + 1, tileW - 2, tileH - 2);
+                    }
+                }
+                const tex = new THREE.CanvasTexture(c);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.anisotropy = maxAniso;
+                Textures.sidewalk = tex;
+            }
+
+            // 3. Газонная трава
+            {
+                const { c, ctx } = makeCanvas(256, 256);
+                ctx.fillStyle = '#4d7c3f';
+                ctx.fillRect(0, 0, 256, 256);
+                for (let i = 0; i < 3500; i++) {
+                    const g = 105 + Math.floor(Math.random() * 45);
+                    ctx.fillStyle = `rgb(${Math.floor(g * 0.58)},${g},${Math.floor(g * 0.45)})`;
+                    ctx.fillRect(Math.random() * 256, Math.random() * 256, 3, 3);
+                }
+                const tex = new THREE.CanvasTexture(c);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(30, 180);
+                Textures.grass = tex;
+            }
+
+            // 4. Жёлтая зигзагообразная разметка автобусной остановки 1.17
+            {
+                const { c, ctx } = makeCanvas(128, 512);
+                ctx.clearRect(0, 0, 128, 512);
+                ctx.fillStyle = 'rgba(16, 185, 129, 0.22)';
+                ctx.fillRect(8, 12, 112, 488);
+                ctx.strokeStyle = '#facc15';
+                ctx.lineWidth = 10;
+                ctx.lineJoin = 'miter';
+                ctx.beginPath();
+                ctx.moveTo(116, 16);
+                for (let y = 16; y <= 496; y += 60) {
+                    const x = ((y - 16) / 60) % 2 === 0 ? 114 : 22;
+                    ctx.lineTo(x, y);
+                }
+                ctx.stroke();
+                ctx.fillStyle = '#facc15';
+                ctx.fillRect(114, 12, 8, 488);
+                const tex = new THREE.CanvasTexture(c);
+                tex.anisotropy = maxAniso;
+                Textures.busStopZone = tex;
+            }
+
+            // 5. Пешеходный переход (зебра)
+            {
+                const { c, ctx } = makeCanvas(512, 128);
+                ctx.clearRect(0, 0, 512, 128);
+                ctx.fillStyle = 'rgba(248, 250, 252, 0.88)';
+                for (let x = 22; x < 490; x += 48) {
+                    ctx.fillRect(x, 12, 26, 104);
+                }
+                const tex = new THREE.CanvasTexture(c);
+                tex.anisotropy = maxAniso;
+                Textures.crosswalk = tex;
+            }
+
+            // 6. Черепичная крыша Кёнигсберга
+            {
+                const { c, ctx } = makeCanvas(256, 256);
+                ctx.fillStyle = '#9a3412';
+                ctx.fillRect(0, 0, 256, 256);
+                for (let y = 0; y < 256; y += 16) {
+                    for (let x = 0; x < 256; x += 24) {
+                        const r = 138 + Math.floor(Math.random() * 42);
+                        ctx.fillStyle = `rgb(${r}, ${Math.floor(r * 0.36)}, ${Math.floor(r * 0.2)})`;
+                        ctx.fillRect(x + 1, y + 1, 22, 14);
+                    }
+                }
+                const tex = new THREE.CanvasTexture(c);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(2, 2);
+                Textures.roofTile = tex;
+            }
+
+            // 7. Фасады калининградских зданий
+            function buildFacadeTexture(opts) {
+                const { c, ctx } = makeCanvas(256, 256);
+                ctx.fillStyle = opts.baseColor;
+                ctx.fillRect(0, 0, 256, 256);
+
+                if (opts.style === 'brick') {
+                    for (let y = 0; y < 256; y += 10) {
+                        const shift = ((y / 10) % 2) * 12;
+                        for (let x = -12; x < 268; x += 24) {
+                            const delta = Math.floor((Math.random() - 0.5) * 24);
+                            ctx.fillStyle = opts.brickShade(delta);
+                            ctx.fillRect(x + shift + 1, y + 1, 22, 8);
+                        }
+                    }
+                } else if (opts.style === 'panel') {
+                    ctx.strokeStyle = 'rgba(51, 65, 85, 0.25)';
+                    ctx.lineWidth = 2;
+                    for (let y = 0; y < 256; y += 64) {
+                        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(256, y); ctx.stroke();
+                    }
+                    for (let x = 0; x < 256; x += 64) {
+                        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 256); ctx.stroke();
+                    }
+                } else if (opts.style === 'fachwerk') {
+                    ctx.fillStyle = '#452715';
+                    for (let y = 0; y <= 256; y += 64) ctx.fillRect(0, y - 3, 256, 7);
+                    for (let x = 0; x <= 256; x += 64) ctx.fillRect(x - 3, 0, 7, 256);
+                    ctx.strokeStyle = '#452715';
+                    ctx.lineWidth = 5;
+                    ctx.beginPath();
+                    ctx.moveTo(0, 64); ctx.lineTo(64, 0);
+                    ctx.moveTo(192, 0); ctx.lineTo(256, 64);
+                    ctx.moveTo(0, 192); ctx.lineTo(64, 128);
+                    ctx.moveTo(192, 128); ctx.lineTo(256, 192);
+                    ctx.stroke();
+                }
+
+                const rows = opts.rows || 4;
+                const cols = opts.cols || 4;
+                const cellW = 256 / cols;
+                const cellH = 256 / rows;
+
+                for (let r = 0; r < rows; r++) {
+                    for (let col = 0; col < cols; col++) {
+                        const wx = col * cellW + cellW * 0.22;
+                        const wy = r * cellH + cellH * 0.2;
+                        const ww = cellW * 0.56;
+                        const wh = cellH * 0.58;
+
+                        ctx.fillStyle = opts.frameColor || '#f8fafc';
+                        ctx.fillRect(wx - 2, wy - 2, ww + 4, wh + 4);
+
+                        const warm = Math.random() > 0.78;
+                        const grad = ctx.createLinearGradient(wx, wy, wx + ww, wy + wh);
+                        if (warm) {
+                            grad.addColorStop(0, '#fde68a');
+                            grad.addColorStop(1, '#d97706');
+                        } else {
+                            grad.addColorStop(0, '#38bdf8');
+                            grad.addColorStop(0.45, '#1e3a5f');
+                            grad.addColorStop(1, '#0f172a');
+                        }
+                        ctx.fillStyle = grad;
+                        ctx.fillRect(wx, wy, ww, wh);
+
+                        ctx.fillStyle = opts.frameColor || '#e2e8f0';
+                        ctx.fillRect(wx + ww * 0.47, wy, 2.5, wh);
+                        ctx.fillRect(wx, wy + wh * 0.4, ww, 2.5);
+
+                        ctx.fillStyle = '#cbd5e1';
+                        ctx.fillRect(wx - 4, wy + wh + 1, ww + 8, 4);
+                    }
+                }
+
+                const tex = new THREE.CanvasTexture(c);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.anisotropy = maxAniso;
+                return tex;
+            }
+
+            Textures.facadeRedBrick = buildFacadeTexture({
+                baseColor: '#7c2d12',
+                style: 'brick',
+                brickShade: (d) => `rgb(${155 + d},${62 + Math.floor(d * 0.5)},${42 + Math.floor(d * 0.4)})`,
+                frameColor: '#f8fafc',
+                rows: 3, cols: 4
+            });
+            Textures.facadeFachwerk = buildFacadeTexture({
+                baseColor: '#f5e6ca',
+                style: 'fachwerk',
+                frameColor: '#5c341d',
+                rows: 4, cols: 4
+            });
+            Textures.facadeStalinka = buildFacadeTexture({
+                baseColor: '#e7cba9',
+                style: 'panel',
+                frameColor: '#ffffff',
+                rows: 4, cols: 4
+            });
+            Textures.facadePanel = buildFacadeTexture({
+                baseColor: '#cbd5e1',
+                style: 'panel',
+                frameColor: '#f1f5f9',
+                rows: 4, cols: 4
+            });
+            Textures.facadeModern = buildFacadeTexture({
+                baseColor: '#e2e8f0',
+                style: 'panel',
+                frameColor: '#334155',
+                rows: 4, cols: 3
+            });
+            Textures.facadeFactory = buildFacadeTexture({
+                baseColor: '#dfe5ec',
+                style: 'brick',
+                brickShade: (d) => `rgb(${212 + d},${216 + d},${220 + d})`,
+                frameColor: '#475569',
+                rows: 2, cols: 3
+            });
+
+            // 8. Градиентное балтийское небо
+            {
+                const { c, ctx } = makeCanvas(32, 256);
+                const g = ctx.createLinearGradient(0, 0, 0, 256);
+                g.addColorStop(0.0, '#1d6ce0');
+                g.addColorStop(0.35, '#5ca8f6');
+                g.addColorStop(0.54, '#b8ddfb');
+                g.addColorStop(0.62, '#e8f3fc');
+                g.addColorStop(1.0, '#7c9a7c');
+                ctx.fillStyle = g;
+                ctx.fillRect(0, 0, 32, 256);
+                Textures.sky = new THREE.CanvasTexture(c);
+            }
+
+            // 9. Светодиодное табло автобуса
+            {
+                const { c, ctx } = makeCanvas(512, 80);
+                ctx.fillStyle = '#070b12';
+                ctx.fillRect(0, 0, 512, 80);
+                ctx.fillStyle = '#fb923c';
+                ctx.font = '900 54px JetBrains Mono, monospace';
+                ctx.fillText('32', 14, 60);
+                ctx.fillStyle = '#334155';
+                ctx.fillRect(94, 12, 3, 56);
+                ctx.fillStyle = '#fbbf24';
+                ctx.font = '800 24px JetBrains Mono, monospace';
+                ctx.fillText('СИЛИКАТНЫЙ З-Д', 112, 34);
+                ctx.fillStyle = '#f59e0b';
+                ctx.fillText('АРТИЛЛЕРИЙСКАЯ', 112, 66);
+                Textures.busLedFront = new THREE.CanvasTexture(c);
+            }
+        }
+
+        function createStopSignTexture(name) {
+            const { c, ctx } = makeCanvas(256, 96);
+            ctx.fillStyle = '#065f46';
+            ctx.fillRect(0, 0, 256, 96);
+            ctx.fillStyle = '#facc15';
+            ctx.fillRect(0, 0, 68, 96);
+            ctx.fillStyle = '#0f172a';
+            ctx.font = '900 38px Inter, sans-serif';
+            ctx.fillText('32', 10, 62);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = '700 20px Inter, sans-serif';
+            const words = name.split(' ');
+            if (words.length > 1) {
+                ctx.fillText(words[0], 78, 40);
+                ctx.fillText(words.slice(1).join(' ').slice(0, 15), 78, 70);
+            } else {
+                ctx.fillText(name.slice(0, 14), 78, 56);
+            }
+            return new THREE.CanvasTexture(c);
+        }
+
+        // =========================================================================
+        // 5. СОСТОЯНИЕ ИГРЫ, РЕАЛИСТИЧНАЯ ФИЗИКА И КАМЕРА
+        // =========================================================================
+        // Параметры 5-ступенчатой автоматической коробки передач (МАЗ-203 / ЛиАЗ-5292)
+        const AUTO_GEARS = [
+            { gear: 1, minKmh: 0,  maxKmh: 12, accel: 1.48 },
+            { gear: 2, minKmh: 10, maxKmh: 24, accel: 1.18 },
+            { gear: 3, minKmh: 21, maxKmh: 36, accel: 0.94 },
+            { gear: 4, minKmh: 33, maxKmh: 48, accel: 0.74 },
+            { gear: 5, minKmh: 45, maxKmh: 58, accel: 0.54 }
+        ];
+
+        const startPt = roadPoint(START_Z, HALF_ROAD - 2.2);
+
+        const state = {
+            started: false,
+            finished: false,
+            muted: false,
+            cameraMode: 0, // 0: Внешний 360° орбитальный вид, 1: Кабина водителя
+            gear: 'D',     // 'D' | 'N' | 'R'
+            autoGearIdx: 0, // 0..4 (передачи 1..5 в режиме D)
+            shiftPauseTimer: 0,
+            bus: {
+                x: startPt.x,
+                z: startPt.z,
+                angle: startPt.angle,
+                speed: 0,           // м/с
+                accelSmooth: 0,     // сглаженное продольное ускорение для подвески
+                latAccelSmooth: 0,  // сглаженное боковое ускорение для крена кузова
+                brakePressure: 0,   // прогрессивное давление пневмотормозов (0..1)
+                peakBrakeHeld: 0,   // пиковое давление для пшика при отпускании
+                wasStoppingBrake: false,
+                steerTarget: 0,     // желаемый угол от руля (-1 вправо .. +1 влево)
+                steerActuator: 0,   // сглаженный гидравлический привод колёс
+                wheelVisualDeg: 0,  // -450 .. +450 градусов
+                pitch: 0,           // клевок носом / приседание кормы (рад)
+                roll: 0,            // крен кузова в поворотах (рад)
+                doorsOpen: false,
+                doorAnim: 0
+            },
+            camera: {
+                // Внешняя камера (относительно автобуса)
+                extYaw: 0,
+                extTargetYaw: 0,
+                extPitch: 0.24,
+                extTargetPitch: 0.24,
+                extDist: 12.2,
+                extTargetDist: 12.2,
+                // Камера кабины водителя
+                cabYaw: 0,
+                cabTargetYaw: 0,
+                cabPitch: -0.04,
+                cabTargetPitch: -0.04
+            },
+            input: {
+                gasTouch: false,
+                brakeTouch: false,
+                gasKey: false,
+                brakeKey: false,
+                leftKey: false,
+                rightKey: false,
+                steeringTouchActive: false,
+                steerTouchValue: 0
+            },
+            currentStopIdx: 0,
+            servedStops: new Set(),
+            passengersInside: 0,
+            totalPassengers: 0,
+            lastOpenedStopId: -1
+        };
+
+        // =========================================================================
+        // 6. ИНИЦИАЛИЗАЦИЯ THREE.JS И ПОСТРОЕНИЕ 3D-МИРА
+        // =========================================================================
+        let scene, camera, renderer, clock, sunLight;
+        let busGroup, busChassis, cabinWheelMesh;
+        let frontWheelPivots = [], allWheelRollMeshes = [];
+        let doorMeshes = [], brakeLightMats = [], reverseLightMats = [];
+        let stopEntries = [];
+        let trafficCars = [];
+        let cloudMeshes = [];
+
+        function initScene() {
+            const canvas = document.getElementById('game-canvas');
+            renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.06;
+
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0xc9e2f8, 0.0023);
+
+            camera = new THREE.PerspectiveCamera(58, window.innerWidth / window.innerHeight, 0.15, 430);
+            clock = new THREE.Clock();
+
+            const maxAniso = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+            createProceduralTextures(maxAniso);
+
+            // Тёплое балтийское солнце и мягкий небесный свет
+            const hemi = new THREE.HemisphereLight(0xcde6ff, 0x4d7344, 0.74);
+            scene.add(hemi);
+
+            sunLight = new THREE.DirectionalLight(0xfff6e5, 1.08);
+            sunLight.position.set(45, 78, 35);
+            sunLight.castShadow = true;
+            sunLight.shadow.mapSize.width = 1024;
+            sunLight.shadow.mapSize.height = 1024;
+            sunLight.shadow.camera.near = 10;
+            sunLight.shadow.camera.far = 190;
+            const d = 50;
+            sunLight.shadow.camera.left = -d;
+            sunLight.shadow.camera.right = d;
+            sunLight.shadow.camera.top = d;
+            sunLight.shadow.camera.bottom = -d;
+            sunLight.shadow.bias = -0.0005;
+            scene.add(sunLight);
+            scene.add(sunLight.target);
+
+            buildSkyAndClouds();
+            buildCurvedRoadAndSidewalks();
+            buildCityBuildingsAndLandmarks();
+            buildInstancedVegetationAndLamps();
+            buildBusStopsAndPassengers();
+            buildKaliningradBus();
+            buildTraffic();
+
+            window.addEventListener('resize', onResize);
+        }
+
+        function buildSkyAndClouds() {
+            const skyGeo = new THREE.SphereGeometry(370, 20, 14);
+            const skyMat = new THREE.MeshBasicMaterial({ map: Textures.sky, side: THREE.BackSide, fog: false });
+            const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+            skyMesh.name = 'skyDome';
+            scene.add(skyMesh);
+
+            const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.86, fog: false });
+            const puffGeo = new THREE.DodecahedronGeometry(1, 1);
+
+            for (let i = 0; i < 26; i++) {
+                const group = new THREE.Group();
+                const puffs = 3 + (i % 3);
+                for (let p = 0; p < puffs; p++) {
+                    const m = new THREE.Mesh(puffGeo, cloudMat);
+                    const s = 6 + (p % 2) * 4 + (i % 4);
+                    m.scale.set(s * 1.4, s * 0.55, s);
+                    m.position.set((p - 1) * 7, (p % 2) * 1.6, (p % 3 - 1) * 3);
+                    group.add(m);
+                }
+                const z = 100 - i * 115;
+                group.position.set(roadCenterX(z) + ((i % 2 === 0 ? 1 : -1) * (40 + (i * 19) % 110)), 82 + (i % 4) * 10, z);
+                scene.add(group);
+                cloudMeshes.push(group);
+            }
+        }
+
+        function buildCurvedRoadAndSidewalks() {
+            const zStart = 50;
+            const zEnd = -2780;
+            const step = 8;
+            const steps = Math.floor((zStart - zEnd) / step);
+
+            function createRibbon(leftOffset, rightOffset, yHeight, uRepeat, vMetersPerTile, material, receiveShadow) {
+                const positions = [];
+                const uvs = [];
+                const indices = [];
+
+                for (let i = 0; i <= steps; i++) {
+                    const z = zStart - i * step;
+                    const pL = roadPoint(z, leftOffset);
+                    const pR = roadPoint(z, rightOffset);
+
+                    positions.push(pL.x, yHeight, pL.z);
+                    positions.push(pR.x, yHeight, pR.z);
+
+                    const v = (i * step) / vMetersPerTile;
+                    uvs.push(0, v);
+                    uvs.push(uRepeat, v);
+
+                    if (i < steps) {
+                        const base = i * 2;
+                        indices.push(base, base + 1, base + 2);
+                        indices.push(base + 1, base + 3, base + 2);
+                    }
+                }
+
+                const geo = new THREE.BufferGeometry();
+                geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+                geo.setIndex(indices);
+                geo.computeVertexNormals();
+
+                const mesh = new THREE.Mesh(geo, material);
+                mesh.receiveShadow = receiveShadow;
+                scene.add(mesh);
+                return mesh;
+            }
+
+            const ground = new THREE.Mesh(
+                new THREE.PlaneGeometry(720, 3200),
+                new THREE.MeshLambertMaterial({ map: Textures.grass })
+            );
+            ground.rotation.x = -Math.PI / 2;
+            ground.position.set(0, -0.06, -1350);
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            createRibbon(-HALF_ROAD, HALF_ROAD, 0.01, 1, 16,
+                new THREE.MeshLambertMaterial({ map: Textures.asphalt }), true);
+
+            const swMat = new THREE.MeshLambertMaterial({ map: Textures.sidewalk });
+            createRibbon(-HALF_ROAD - 4.8, -HALF_ROAD - 0.25, 0.18, 2, 4.5, swMat, true);
+            createRibbon(HALF_ROAD + 0.25, HALF_ROAD + 4.8, 0.18, 2, 4.5, swMat, true);
+
+            const curbMat = new THREE.MeshLambertMaterial({ color: 0xcbd5e1 });
+            createRibbon(-HALF_ROAD - 0.25, -HALF_ROAD, 0.19, 1, 10, curbMat, false);
+            createRibbon(HALF_ROAD, HALF_ROAD + 0.25, 0.19, 1, 10, curbMat, false);
+
+            function createCurbWall(offsetX, flip) {
+                const pos = [], idx = [];
+                for (let i = 0; i <= steps; i++) {
+                    const z = zStart - i * step;
+                    const p = roadPoint(z, offsetX);
+                    pos.push(p.x, 0.0, p.z);
+                    pos.push(p.x, 0.19, p.z);
+                    if (i < steps) {
+                        const b = i * 2;
+                        if (flip) idx.push(b, b + 2, b + 1, b + 1, b + 2, b + 3);
+                        else idx.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+                    }
+                }
+                const g = new THREE.BufferGeometry();
+                g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+                g.setIndex(idx);
+                g.computeVertexNormals();
+                scene.add(new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: 0x94a3b8 })));
+            }
+            createCurbWall(HALF_ROAD, false);
+            createCurbWall(-HALF_ROAD, true);
+
+            const cwMat = new THREE.MeshBasicMaterial({ map: Textures.crosswalk, transparent: true, depthWrite: false });
+            const cwGeo = new THREE.PlaneGeometry(ROAD_WIDTH - 0.6, 3.8);
+            ROUTE_STOPS.forEach((stop, idx) => {
+                if (idx === 0 || idx === 9) return;
+                const p = roadPoint(stop.z - 14, 0);
+                const cw = new THREE.Mesh(cwGeo, cwMat);
+                cw.rotation.x = -Math.PI / 2;
+                cw.rotation.z = p.angle;
+                cw.position.set(p.x, 0.03, p.z);
+                scene.add(cw);
+            });
+        }
+
+        function buildCityBuildingsAndLandmarks() {
+            const matRedBrick = new THREE.MeshLambertMaterial({ map: Textures.facadeRedBrick });
+            const matFachwerk = new THREE.MeshLambertMaterial({ map: Textures.facadeFachwerk });
+            const matStalinka = new THREE.MeshLambertMaterial({ map: Textures.facadeStalinka });
+            const matPanel = new THREE.MeshLambertMaterial({ map: Textures.facadePanel });
+            const matModern = new THREE.MeshLambertMaterial({ map: Textures.facadeModern });
+            const matFactory = new THREE.MeshLambertMaterial({ map: Textures.facadeFactory });
+            const matRoofRed = new THREE.MeshLambertMaterial({ map: Textures.roofTile });
+            const matRoofDark = new THREE.MeshLambertMaterial({ color: 0x334155 });
+            const matBalcony = new THREE.MeshLambertMaterial({ color: 0xe2e8f0 });
+            const matGlassModern = new THREE.MeshLambertMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.72 });
+
+            function addHouse(z, side, style, seed) {
+                const group = new THREE.Group();
+                let w, h, d, wallMat;
+
+                if (style === 'german') {
+                    w = 9 + (seed % 5);
+                    h = 7.5 + (seed % 4) * 1.4;
+                    d = 12 + (seed % 5);
+                    wallMat = (seed % 2 === 0) ? matRedBrick : matFachwerk;
+
+                    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+                    body.position.y = h * 0.5;
+                    group.add(body);
+
+                    const roofH = 4.2 + (seed % 2);
+                    const roofGeo = new THREE.CylinderGeometry(0, w * 0.78, roofH, 4);
+                    roofGeo.rotateY(Math.PI / 4);
+                    const roof = new THREE.Mesh(roofGeo, matRoofRed);
+                    roof.scale.set(1.02, 1, d / (w * 1.05));
+                    roof.position.y = h + roofH * 0.5;
+                    group.add(roof);
+
+                    const dormer = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.8, 2.2), matFachwerk);
+                    dormer.position.set(side < 0 ? w * 0.25 : -w * 0.25, h + 1.2, 0);
+                    group.add(dormer);
+                } else if (style === 'soviet') {
+                    const isNineStory = (seed % 3 === 0);
+                    w = 12 + (seed % 4);
+                    h = isNineStory ? 23 : 14.5;
+                    d = 18 + (seed % 6);
+                    wallMat = (seed % 2 === 0) ? matPanel : matStalinka;
+
+                    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+                    body.position.y = h * 0.5;
+                    group.add(body);
+
+                    const cap = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.7, d + 0.5), matRoofDark);
+                    cap.position.y = h + 0.35;
+                    group.add(cap);
+
+                    const faceX = side < 0 ? w * 0.5 + 0.55 : -w * 0.5 - 0.55;
+                    const floors = isNineStory ? 6 : 4;
+                    for (let fl = 1; fl < floors; fl++) {
+                        for (let bz = -d * 0.3; bz <= d * 0.31; bz += d * 0.3) {
+                            const balc = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 3.2), matBalcony);
+                            balc.position.set(faceX, fl * 3.1 + 1.4, bz);
+                            group.add(balc);
+                        }
+                    }
+                } else if (style === 'modern') {
+                    w = 13 + (seed % 4);
+                    h = 22 + (seed % 3) * 5;
+                    d = 16 + (seed % 4);
+                    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), matModern);
+                    body.position.y = h * 0.5;
+                    group.add(body);
+
+                    const accent = new THREE.Mesh(new THREE.BoxGeometry(w + 0.3, h * 0.88, d * 0.36), matGlassModern);
+                    accent.position.y = h * 0.5;
+                    group.add(accent);
+
+                    const topRim = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, 1.1, d + 0.6), matRoofDark);
+                    topRim.position.y = h + 0.55;
+                    group.add(topRim);
+                } else {
+                    w = 15;
+                    h = 9.5 + (seed % 3);
+                    d = 22;
+                    const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), matFactory);
+                    body.position.y = h * 0.5;
+                    group.add(body);
+
+                    const roof = new THREE.Mesh(new THREE.BoxGeometry(w + 0.6, 0.8, d + 0.6), matRoofDark);
+                    roof.position.y = h + 0.4;
+                    group.add(roof);
+                }
+
+                const lateral = side * (HALF_ROAD + 7.5 + w * 0.5 + (seed % 5));
+                const p = roadPoint(z, lateral);
+                group.position.set(p.x, 0, p.z);
+                group.rotation.y = p.angle;
+                scene.add(group);
+            }
+
+            let seed = 1;
+            for (let z = 10; z > -2720; z -= 26) {
+                seed += 7;
+                for (const side of [-1, 1]) {
+                    if (z < -830 && z > -1040 && side === -1) continue;
+                    if (z < -1160 && z > -1260 && side === 1) continue;
+                    if (z < -1440 && z > -1550 && side === -1) continue;
+                    if (z < -1710 && z > -1860 && side === -1) continue;
+                    if (z < -2020 && z > -2110 && side === 1) continue;
+                    if (z < -560 && z > -800 && (seed + side) % 3 !== 0) continue;
+
+                    let style = 'german';
+                    if (z > -250) {
+                        style = (side === 1 || seed % 2 === 0) ? 'factory' : 'soviet';
+                    } else if (z > -560) {
+                        style = (seed % 3 === 0) ? 'soviet' : 'german';
+                    } else if (z > -1640) {
+                        style = (seed % 3 === 0) ? 'soviet' : 'german';
+                    } else if (z > -2440) {
+                        style = (seed % 2 === 0) ? 'soviet' : 'german';
+                    } else {
+                        style = (seed % 3 === 0) ? 'soviet' : 'modern';
+                    }
+
+                    addHouse(z + (side > 0 ? 6 : 0), side, style, seed + (side > 0 ? 3 : 0));
+                }
+            }
+
+            buildLandmarks(matRedBrick, matRoofRed, matFactory, matStalinka);
+        }
+
+        function buildLandmarks(matRedBrick, matRoofRed, matFactory, matStalinka) {
+            // 1. Силикатный завод (трубы и корпус)
+            {
+                const p = roadPoint(-115, HALF_ROAD + 19);
+                const g = new THREE.Group();
+                const hall = new THREE.Mesh(new THREE.BoxGeometry(16, 11, 30), matFactory);
+                hall.position.y = 5.5;
+                g.add(hall);
+                [-8, 6].forEach((cz, idx) => {
+                    const ch = new THREE.Mesh(
+                        new THREE.CylinderGeometry(1.1, 1.9, 32 - idx * 5, 12),
+                        new THREE.MeshLambertMaterial({ color: idx === 0 ? 0xc2410c : 0xdc2626 })
+                    );
+                    ch.position.set(5, (32 - idx * 5) * 0.5, cz);
+                    const stripe = new THREE.Mesh(
+                        new THREE.CylinderGeometry(1.25, 1.35, 3.2, 12),
+                        new THREE.MeshLambertMaterial({ color: 0xf8fafc })
+                    );
+                    stripe.position.set(5, 24 - idx * 4, cz);
+                    g.add(ch, stripe);
+                });
+                g.position.set(p.x, 0, p.z);
+                g.rotation.y = p.angle;
+                scene.add(g);
+            }
+
+            // 2. Центральный парк — Кирха Королевы Луизы
+            {
+                const p = roadPoint(-935, -(HALF_ROAD + 17));
+                const g = new THREE.Group();
+                const nave = new THREE.Mesh(new THREE.BoxGeometry(12, 12, 22), matRedBrick);
+                nave.position.y = 6;
+                const roof = new THREE.Mesh(new THREE.ConeGeometry(9.5, 6.5, 4), matRoofRed);
+                roof.rotation.y = Math.PI / 4;
+                roof.scale.set(0.95, 1, 1.7);
+                roof.position.y = 15.2;
+
+                const tower = new THREE.Mesh(new THREE.BoxGeometry(5.8, 22, 5.8), matRedBrick);
+                tower.position.set(3.5, 11, 8);
+                const spire = new THREE.Mesh(
+                    new THREE.ConeGeometry(3.9, 13, 4),
+                    new THREE.MeshLambertMaterial({ color: 0x115e59 })
+                );
+                spire.rotation.y = Math.PI / 4;
+                spire.position.set(3.5, 28.5, 8);
+                g.add(nave, roof, tower, spire);
+                g.position.set(p.x, 0, p.z);
+                g.rotation.y = p.angle;
+                scene.add(g);
+            }
+
+            // 3. Драмтеатр с белыми колоннами
+            {
+                const p = roadPoint(-1210, HALF_ROAD + 19);
+                const g = new THREE.Group();
+                const main = new THREE.Mesh(new THREE.BoxGeometry(16, 13, 28), matStalinka);
+                main.position.y = 6.5;
+                g.add(main);
+
+                const whiteMat = new THREE.MeshLambertMaterial({ color: 0xf8fafc });
+                const steps = new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.2, 20), whiteMat);
+                steps.position.set(-9.5, 0.6, 0);
+                g.add(steps);
+
+                for (let cz = -7.5; cz <= 7.6; cz += 3) {
+                    const col = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.52, 10.5, 10), whiteMat);
+                    col.position.set(-9.5, 6.2, cz);
+                    g.add(col);
+                }
+                const pediment = new THREE.Mesh(new THREE.BoxGeometry(4.8, 2.2, 19), whiteMat);
+                pediment.position.set(-9.4, 12.2, 0);
+                g.add(pediment);
+
+                g.position.set(p.x, 0, p.z);
+                g.rotation.y = p.angle;
+                scene.add(g);
+            }
+
+            // 4. Калининградский зоопарк — входная арка
+            {
+                const p = roadPoint(-1490, -(HALF_ROAD + 12));
+                const g = new THREE.Group();
+                const archBrick = new THREE.MeshLambertMaterial({ color: 0xb45309 });
+                [-5.5, 5.5].forEach(az => {
+                    const pil = new THREE.Mesh(new THREE.BoxGeometry(3.4, 8.8, 3.4), archBrick);
+                    pil.position.set(0, 4.4, az);
+                    g.add(pil);
+                });
+                const beam = new THREE.Mesh(
+                    new THREE.BoxGeometry(2.6, 2.5, 14.8),
+                    new THREE.MeshLambertMaterial({ color: 0xfde68a })
+                );
+                beam.position.set(0, 9.5, 0);
+                g.add(beam);
+                g.position.set(p.x, 0, p.z);
+                g.rotation.y = p.angle;
+                scene.add(g);
+            }
+
+            // 5. Площадь Победы — Триумфальная колонна и Храм Христа Спасителя
+            {
+                const p = roadPoint(-1780, -(HALF_ROAD + 14));
+                const g = new THREE.Group();
+
+                const plaza = new THREE.Mesh(
+                    new THREE.BoxGeometry(34, 0.25, 48),
+                    new THREE.MeshLambertMaterial({ color: 0xcbd5e1 })
+                );
+                plaza.position.set(-10, 0.12, 0);
+                g.add(plaza);
+
+                const ped = new THREE.Mesh(new THREE.BoxGeometry(4.4, 4.5, 4.4), new THREE.MeshLambertMaterial({ color: 0x991b1b }));
+                ped.position.set(0, 2.25, 0);
+                const col = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.15, 22, 12), new THREE.MeshLambertMaterial({ color: 0xf8fafc }));
+                col.position.set(0, 15, 0);
+                const goldMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.65, roughness: 0.25 });
+                const crest = new THREE.Mesh(new THREE.OctahedronGeometry(1.6, 1), goldMat);
+                crest.position.set(0, 27, 0);
+                g.add(ped, col, crest);
+
+                const cathedralMat = new THREE.MeshLambertMaterial({ color: 0xf8fafc });
+                const churchBody = new THREE.Mesh(new THREE.BoxGeometry(18, 20, 18), cathedralMat);
+                churchBody.position.set(-18, 10, -4);
+                const mainDrum = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 4.5, 7, 14), cathedralMat);
+                mainDrum.position.set(-18, 23, -4);
+                const mainDome = new THREE.Mesh(new THREE.SphereGeometry(4.5, 14, 12), goldMat);
+                mainDome.scale.set(1, 1.25, 1);
+                mainDome.position.set(-18, 28, -4);
+                g.add(churchBody, mainDrum, mainDome);
+
+                [[-5.5, -5.5], [5.5, -5.5], [-5.5, 5.5], [5.5, 5.5]].forEach(([dx, dz]) => {
+                    const smDome = new THREE.Mesh(new THREE.SphereGeometry(2.1, 10, 10), goldMat);
+                    smDome.scale.set(1, 1.25, 1);
+                    smDome.position.set(-18 + dx, 22.5, -4 + dz);
+                    g.add(smDome);
+                });
+
+                g.position.set(p.x, 0, p.z);
+                g.rotation.y = p.angle;
+                scene.add(g);
+            }
+
+            // 6. Литовский вал — Королевские ворота
+            {
+                const p = roadPoint(-2065, HALF_ROAD + 14);
+                const g = new THREE.Group();
+                const brick = new THREE.MeshLambertMaterial({ color: 0x991b1b });
+                const sand = new THREE.MeshLambertMaterial({ color: 0xe7d3b1 });
+
+                const leftB = new THREE.Mesh(new THREE.BoxGeometry(5.5, 13, 7.5), brick);
+                leftB.position.set(0, 6.5, -6.5);
+                const rightB = new THREE.Mesh(new THREE.BoxGeometry(5.5, 13, 7.5), brick);
+                rightB.position.set(0, 6.5, 6.5);
+                const centerWall = new THREE.Mesh(new THREE.BoxGeometry(4.2, 7, 9), brick);
+                centerWall.position.set(0, 10.5, 0);
+                g.add(leftB, rightB, centerWall);
+
+                [-8.5, -4.5, 4.5, 8.5].forEach(tz => {
+                    const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.75, 4.5, 8), sand);
+                    turret.position.set(-2.2, 14.5, tz);
+                    g.add(turret);
+                });
+
+                g.position.set(p.x, 0, p.z);
+                g.rotation.y = p.angle;
+                scene.add(g);
+            }
+        }
+
+        function buildInstancedVegetationAndLamps() {
+            const broadleafCoords = [];
+            const coniferCoords = [];
+            const bushCoords = [];
+            const lampCoords = [];
+
+            for (let z = 30; z > -2740; z -= 11) {
+                const nearStop = ROUTE_STOPS.some(s => Math.abs(s.z - z) < 16);
+
+                if (Math.abs(Math.round(z)) % 33 < 11) {
+                    lampCoords.push({ z, side: -1 });
+                    lampCoords.push({ z, side: 1 });
+                }
+
+                for (const side of [-1, 1]) {
+                    if (side === 1 && nearStop) continue;
+
+                    const isPineZone = (z > -820 && z < -250);
+                    const isParkZone = (z < -810 && z > -1080 && side === -1);
+
+                    if (Math.abs(z * 13 + side) % 2 === 0 || isParkZone) {
+                        const lat = side * (HALF_ROAD + 5.6 + ((Math.abs(z) * 7) % 10) * 0.14);
+                        const item = { z: z + (side * 2.5), lat, scale: 0.85 + ((Math.abs(z * 17) % 10) * 0.045) };
+                        if (isPineZone && Math.abs(z) % 3 !== 0) coniferCoords.push(item);
+                        else broadleafCoords.push(item);
+                    }
+
+                    if (!nearStop && Math.abs(z) % 22 < 11) {
+                        bushCoords.push({
+                            z: z + 4,
+                            lat: side * (HALF_ROAD + 5.1),
+                            scale: 0.75 + ((Math.abs(z * 5) % 6) * 0.12)
+                        });
+                    }
+
+                    if (isParkZone || (z < -520 && z > -820) || (z < -1410 && z > -1590 && side === -1)) {
+                        for (let row = 0; row < 2; row++) {
+                            const deepLat = side * (HALF_ROAD + 11 + row * 8 + ((Math.abs(z * 11 + row * 7) % 6)));
+                            const item = { z: z + row * 4, lat: deepLat, scale: 1.0 + ((Math.abs(z + row) % 5) * 0.12) };
+                            if (isPineZone && row === 1) coniferCoords.push(item);
+                            else broadleafCoords.push(item);
+                        }
+                    }
+                }
+            }
+
+            const dummy = new THREE.Object3D();
+            const tmpColor = new THREE.Color();
+
+            const bCount = broadleafCoords.length;
+            const trunkGeo = new THREE.CylinderGeometry(0.22, 0.34, 3.2, 6);
+            const trunkMat = new THREE.MeshLambertMaterial({ color: 0x5c4033 });
+            const leafGeo = new THREE.IcosahedronGeometry(2.1, 1);
+            const leafMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+
+            const trunkInst = new THREE.InstancedMesh(trunkGeo, trunkMat, bCount);
+            const crown1Inst = new THREE.InstancedMesh(leafGeo, leafMat, bCount);
+            const crown2Inst = new THREE.InstancedMesh(leafGeo, leafMat, bCount);
+            const crown3Inst = new THREE.InstancedMesh(leafGeo, leafMat, bCount);
+
+            const greenPalette = [0x2e7d32, 0x388e3c, 0x43a047, 0x4d7c0f, 0x15803d, 0x65a30d];
+
+            broadleafCoords.forEach((t, i) => {
+                const p = roadPoint(t.z, t.lat);
+                const s = t.scale;
+
+                dummy.position.set(p.x, 1.6 * s, p.z);
+                dummy.rotation.set(0, (i * 1.3) % 6.28, 0);
+                dummy.scale.set(s, s, s);
+                dummy.updateMatrix();
+                trunkInst.setMatrixAt(i, dummy.matrix);
+
+                dummy.position.set(p.x, 4.3 * s, p.z);
+                dummy.scale.set(s * 1.15, s * 0.92, s * 1.15);
+                dummy.updateMatrix();
+                crown1Inst.setMatrixAt(i, dummy.matrix);
+
+                dummy.position.set(p.x + 0.55 * s, 5.7 * s, p.z - 0.35 * s);
+                dummy.scale.set(s * 0.85, s * 0.82, s * 0.85);
+                dummy.updateMatrix();
+                crown2Inst.setMatrixAt(i, dummy.matrix);
+
+                dummy.position.set(p.x - 0.75 * s, 4.7 * s, p.z + 0.55 * s);
+                dummy.scale.set(s * 0.78, s * 0.75, s * 0.78);
+                dummy.updateMatrix();
+                crown3Inst.setMatrixAt(i, dummy.matrix);
+
+                tmpColor.setHex(greenPalette[i % greenPalette.length]);
+                crown1Inst.setColorAt(i, tmpColor);
+                tmpColor.offsetHSL(0.015, 0.04, 0.05);
+                crown2Inst.setColorAt(i, tmpColor);
+                tmpColor.offsetHSL(-0.02, -0.02, -0.04);
+                crown3Inst.setColorAt(i, tmpColor);
+            });
+            crown1Inst.instanceColor.needsUpdate = true;
+            crown2Inst.instanceColor.needsUpdate = true;
+            crown3Inst.instanceColor.needsUpdate = true;
+            scene.add(trunkInst, crown1Inst, crown2Inst, crown3Inst);
+
+            const cCount = coniferCoords.length;
+            if (cCount > 0) {
+                const cTrunkInst = new THREE.InstancedMesh(trunkGeo, trunkMat, cCount);
+                const coneGeo = new THREE.ConeGeometry(2.0, 5.2, 7);
+                const pineMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+                const coneLow = new THREE.InstancedMesh(coneGeo, pineMat, cCount);
+                const coneTop = new THREE.InstancedMesh(coneGeo, pineMat, cCount);
+
+                const pineColors = [0x14532d, 0x166534, 0x1e4620];
+                coniferCoords.forEach((t, i) => {
+                    const p = roadPoint(t.z, t.lat);
+                    const s = t.scale;
+
+                    dummy.position.set(p.x, 1.6 * s, p.z);
+                    dummy.rotation.set(0, i, 0);
+                    dummy.scale.set(s * 0.85, s * 1.1, s * 0.85);
+                    dummy.updateMatrix();
+                    cTrunkInst.setMatrixAt(i, dummy.matrix);
+
+                    dummy.position.set(p.x, 4.6 * s, p.z);
+                    dummy.scale.set(s * 1.1, s * 1.0, s * 1.1);
+                    dummy.updateMatrix();
+                    coneLow.setMatrixAt(i, dummy.matrix);
+
+                    dummy.position.set(p.x, 7.2 * s, p.z);
+                    dummy.scale.set(s * 0.78, s * 0.9, s * 0.78);
+                    dummy.updateMatrix();
+                    coneTop.setMatrixAt(i, dummy.matrix);
+
+                    tmpColor.setHex(pineColors[i % pineColors.length]);
+                    coneLow.setColorAt(i, tmpColor);
+                    tmpColor.offsetHSL(0, 0, 0.04);
+                    coneTop.setColorAt(i, tmpColor);
+                });
+                coneLow.instanceColor.needsUpdate = true;
+                coneTop.instanceColor.needsUpdate = true;
+                scene.add(cTrunkInst, coneLow, coneTop);
+            }
+
+            if (bushCoords.length > 0) {
+                const bushGeo = new THREE.DodecahedronGeometry(0.85, 1);
+                const bushInst = new THREE.InstancedMesh(bushGeo, leafMat, bushCoords.length);
+                bushCoords.forEach((b, i) => {
+                    const p = roadPoint(b.z, b.lat);
+                    dummy.position.set(p.x, 0.55 * b.scale, p.z);
+                    dummy.rotation.set(0, i * 0.9, 0);
+                    dummy.scale.set(b.scale * 1.35, b.scale * 0.78, b.scale * 1.2);
+                    dummy.updateMatrix();
+                    bushInst.setMatrixAt(i, dummy.matrix);
+                    tmpColor.setHex(greenPalette[(i + 2) % greenPalette.length]);
+                    bushInst.setColorAt(i, tmpColor);
+                });
+                bushInst.instanceColor.needsUpdate = true;
+                scene.add(bushInst);
+            }
+
+            if (lampCoords.length > 0) {
+                const poleGeo = new THREE.CylinderGeometry(0.08, 0.13, 7.6, 6);
+                const poleMat = new THREE.MeshLambertMaterial({ color: 0x475569 });
+                const headGeo = new THREE.BoxGeometry(1.3, 0.18, 0.36);
+                const headMat = new THREE.MeshBasicMaterial({ color: 0xfef9c3 });
+
+                const poleInst = new THREE.InstancedMesh(poleGeo, poleMat, lampCoords.length);
+                const headInst = new THREE.InstancedMesh(headGeo, headMat, lampCoords.length);
+
+                lampCoords.forEach((l, i) => {
+                    const p = roadPoint(l.z, l.side * (HALF_ROAD + 0.85));
+                    dummy.position.set(p.x, 3.8, p.z);
+                    dummy.rotation.set(0, p.angle, 0);
+                    dummy.scale.set(1, 1, 1);
+                    dummy.updateMatrix();
+                    poleInst.setMatrixAt(i, dummy.matrix);
+
+                    const pHead = roadPoint(l.z, l.side * (HALF_ROAD + 0.25));
+                    dummy.position.set(pHead.x, 7.55, pHead.z);
+                    dummy.rotation.set(0, p.angle, 0);
+                    dummy.updateMatrix();
+                    headInst.setMatrixAt(i, dummy.matrix);
+                });
+                scene.add(poleInst, headInst);
+            }
+        }
+
+        function buildBusStopsAndPassengers() {
+            const frameMat = new THREE.MeshLambertMaterial({ color: 0x065f46 });
+            const glassMat = new THREE.MeshLambertMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.42 });
+            const benchMat = new THREE.MeshLambertMaterial({ color: 0xb45309 });
+            const zoneGeo = new THREE.PlaneGeometry(3.5, 16);
+            const coatPalette = [0xef4444, 0x3b82f6, 0xf59e0b, 0x8b5cf6, 0x10b981, 0xec4899, 0x0ea5e9];
+
+            ROUTE_STOPS.forEach((stop) => {
+                const pZone = roadPoint(stop.z, HALF_ROAD - 1.8);
+                const zoneMat = new THREE.MeshBasicMaterial({
+                    map: Textures.busStopZone,
+                    transparent: true,
+                    depthWrite: false
+                });
+                const zoneMesh = new THREE.Mesh(zoneGeo, zoneMat);
+                zoneMesh.rotation.x = -Math.PI / 2;
+                zoneMesh.rotation.z = pZone.angle;
+                zoneMesh.position.set(pZone.x, 0.035, pZone.z);
+                scene.add(zoneMesh);
+
+                const pShelter = roadPoint(stop.z, HALF_ROAD + 2.3);
+                const shelter = new THREE.Group();
+                const roof = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.16, 5.4), frameMat);
+                roof.position.y = 2.85;
+                const back = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2.6, 5.1), glassMat);
+                back.position.set(0.85, 1.45, 0);
+                const p1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.8, 0.12), frameMat);
+                p1.position.set(0.85, 1.4, -2.5);
+                const p2 = p1.clone();
+                p2.position.z = 2.5;
+                const bench = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.42, 3.2), benchMat);
+                bench.position.set(0.45, 0.45, 0);
+
+                const signTex = createStopSignTexture(stop.name);
+                const sign = new THREE.Mesh(
+                    new THREE.PlaneGeometry(2.5, 0.92),
+                    new THREE.MeshBasicMaterial({ map: signTex, side: THREE.DoubleSide })
+                );
+                sign.position.set(-0.3, 3.45, 2.3);
+
+                shelter.add(roof, back, p1, p2, bench, sign);
+                shelter.position.set(pShelter.x, 0.18, pShelter.z);
+                shelter.rotation.y = pShelter.angle;
+                scene.add(shelter);
+
+                const passengers = [];
+                for (let k = 0; k < stop.waiting; k++) {
+                    const person = new THREE.Group();
+                    const torso = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.2, 0.25, 1.08, 7),
+                        new THREE.MeshLambertMaterial({ color: coatPalette[(k + stop.id) % coatPalette.length] })
+                    );
+                    torso.position.y = 0.78;
+                    const head = new THREE.Mesh(
+                        new THREE.SphereGeometry(0.19, 7, 7),
+                        new THREE.MeshLambertMaterial({ color: 0xfde68a })
+                    );
+                    head.position.y = 1.52;
+                    person.add(torso, head);
+
+                    const pLat = HALF_ROAD + 1.0 + (k % 2) * 0.65;
+                    const pZ = stop.z - 2.4 + Math.floor(k / 2) * 1.15;
+                    const pos = roadPoint(pZ, pLat);
+                    person.position.set(pos.x, 0.18, pos.z);
+                    scene.add(person);
+
+                    passengers.push({
+                        mesh: person,
+                        homeX: pos.x,
+                        homeZ: pos.z,
+                        boarding: false,
+                        boarded: false
+                    });
+                }
+
+                stopEntries.push({ stop, zoneMesh, passengers });
+            });
+        }
+
+        // Детализированный автобус Калининград-ГорТранс с подвеской (busChassis) и салоном
+        function buildKaliningradBus() {
+            busGroup = new THREE.Group();
+            busChassis = new THREE.Group();
+            busGroup.add(busChassis);
+
+            const L = 10.8, W = 2.62;
+
+            const greenMat = new THREE.MeshLambertMaterial({ color: 0x0f9d58 });
+            const whiteMat = new THREE.MeshLambertMaterial({ color: 0xf8fafc });
+            const darkMat = new THREE.MeshLambertMaterial({ color: 0x1e293b });
+            const yellowMat = new THREE.MeshLambertMaterial({ color: 0xfacc15 });
+            const interiorWallMat = new THREE.MeshLambertMaterial({ color: 0xe2e8f0 });
+            const glassMat = new THREE.MeshLambertMaterial({ color: 0x0f172a, transparent: true, opacity: 0.38 });
+            const mirrorGlassMat = new THREE.MeshStandardMaterial({ color: 0xbfe4ff, metalness: 0.85, roughness: 0.15 });
+
+            // Нижний пол и борта (полый салон для красивого обзора из кабины!)
+            const floor = new THREE.Mesh(new THREE.BoxGeometry(W - 0.1, 0.34, L - 0.1), darkMat);
+            floor.position.y = 0.56;
+            floor.castShadow = true;
+            busChassis.add(floor);
+
+            // Левый борт (нижняя зелёная панель)
+            const leftLower = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.15, L), greenMat);
+            leftLower.position.set(-W * 0.5 + 0.06, 1.24, 0);
+            leftLower.castShadow = true;
+            busChassis.add(leftLower);
+
+            // Правый борт (секции вокруг двух дверных проёмов)
+            [
+                { z: -4.85, len: 1.1 },
+                { z: -1.55, len: 2.3 },
+                { z:  3.25, len: 4.3 }
+            ].forEach(seg => {
+                const panel = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.15, seg.len), greenMat);
+                panel.position.set(W * 0.5 - 0.06, 1.24, seg.z);
+                panel.castShadow = true;
+                busChassis.add(panel);
+            });
+
+            // Передняя и задняя маски кузова
+            const frontMask = new THREE.Mesh(new THREE.BoxGeometry(W, 1.25, 0.16), greenMat);
+            frontMask.position.set(0, 1.18, -L * 0.5 + 0.08);
+            const rearMask = new THREE.Mesh(new THREE.BoxGeometry(W, 1.45, 0.18), greenMat);
+            rearMask.position.set(0, 1.28, L * 0.5 - 0.09);
+            busChassis.add(frontMask, rearMask);
+
+            // Фирменная жёлтая полоса
+            const stripeL = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.15, L + 0.02), yellowMat);
+            stripeL.position.set(-W * 0.5 - 0.01, 1.72, 0);
+            const stripeF = new THREE.Mesh(new THREE.BoxGeometry(W + 0.03, 0.15, 0.04), yellowMat);
+            stripeF.position.set(0, 1.72, -L * 0.5 - 0.01);
+            const stripeR = stripeF.clone();
+            stripeR.position.z = L * 0.5 + 0.01;
+            busChassis.add(stripeL, stripeF, stripeR);
+
+            // Белая крыша и кондиционер
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(W - 0.04, 0.34, L - 0.08), whiteMat);
+            roof.position.y = 3.12;
+            roof.castShadow = true;
+            busChassis.add(roof);
+
+            const acUnit = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.28, 3.3), whiteMat);
+            acUnit.position.set(0, 3.4, -0.4);
+            busChassis.add(acUnit);
+
+            // Панорамные стёкла
+            const frontGlass = new THREE.Mesh(new THREE.BoxGeometry(W - 0.18, 1.28, 0.06), glassMat);
+            frontGlass.position.set(0, 2.38, -L * 0.5 + 0.05);
+            const rearGlass = frontGlass.clone();
+            rearGlass.position.z = L * 0.5 - 0.05;
+            const leftGlass = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.18, L - 0.65), glassMat);
+            leftGlass.position.set(-W * 0.5 + 0.05, 2.38, 0);
+            // Правое стекло между дверями и в задней части
+            const rightGlassMid = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.18, 2.2), glassMat);
+            rightGlassMid.position.set(W * 0.5 - 0.05, 2.38, -1.55);
+            const rightGlassRear = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.18, 4.0), glassMat);
+            rightGlassRear.position.set(W * 0.5 - 0.05, 2.38, 3.2);
+            busChassis.add(frontGlass, rearGlass, leftGlass, rightGlassMid, rightGlassRear);
+
+            // Стойки кузова и перегородка кабины водителя
+            [-L * 0.5 + 0.12, -2.7, -0.45, 1.2, L * 0.5 - 0.12].forEach(pz => {
+                [-W * 0.5 + 0.07, W * 0.5 - 0.07].forEach(px => {
+                    const p = new THREE.Mesh(new THREE.BoxGeometry(0.13, 1.32, 0.18), darkMat);
+                    p.position.set(px, 2.38, pz);
+                    busChassis.add(p);
+                });
+            });
+
+            // Выносные боковые зеркала с отражающей поверхностью (видны при повороте головы в кабине!)
+            [-1, 1].forEach(s => {
+                const arm = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.06, 0.06), darkMat);
+                arm.position.set(s * (W * 0.5 + 0.16), 2.48, -L * 0.5 - 0.12);
+                const housing = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.44, 0.16), darkMat);
+                housing.position.set(s * (W * 0.5 + 0.34), 2.32, -L * 0.5 - 0.18);
+                const glass = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.38), mirrorGlassMat);
+                glass.position.set(s * (W * 0.5 + 0.34), 2.32, -L * 0.5 - 0.09);
+                glass.rotation.y = s * -0.18;
+                busChassis.add(arm, housing, glass);
+            });
+
+            // Внутрисалонное зеркало обзора салона над лобовым стеклом
+            const cabinMirror = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.12, 0.04), darkMat);
+            cabinMirror.position.set(0.05, 2.86, -L * 0.5 + 0.25);
+            busChassis.add(cabinMirror);
+
+            // Светодиодные маршрутные табло
+            const ledMat = new THREE.MeshBasicMaterial({ map: Textures.busLedFront });
+            const frontLed = new THREE.Mesh(new THREE.PlaneGeometry(2.15, 0.38), ledMat);
+            frontLed.position.set(0, 3.04, -L * 0.5 - 0.02);
+            frontLed.rotation.y = Math.PI;
+
+            const sideLed = new THREE.Mesh(new THREE.PlaneGeometry(1.75, 0.32), ledMat);
+            sideLed.position.set(W * 0.5 + 0.02, 2.94, -1.55);
+            sideLed.rotation.y = Math.PI / 2;
+
+            const rearLed = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.32), ledMat);
+            rearLed.position.set(0, 2.98, L * 0.5 + 0.02);
+            busChassis.add(frontLed, sideLed, rearLed);
+
+            // Две раздвижные двери по правому борту
+            const doorMat = new THREE.MeshLambertMaterial({ color: 0x059669 });
+            [-3.5, 0.35].forEach(dz => {
+                const door = new THREE.Group();
+                const panel = new THREE.Mesh(new THREE.BoxGeometry(0.09, 2.1, 1.48), doorMat);
+                const win = new THREE.Mesh(new THREE.BoxGeometry(0.11, 1.15, 1.18), glassMat);
+                win.position.y = 0.34;
+                door.add(panel, win);
+                door.position.set(W * 0.5 - 0.02, 1.72, dz);
+                door.userData = { baseX: W * 0.5 - 0.02, baseZ: dz };
+                busChassis.add(door);
+                doorMeshes.push(door);
+            });
+
+            // Интерьер кабины: приборная панель, экран, 3D-руль
+            const dash = new THREE.Mesh(new THREE.BoxGeometry(2.38, 0.62, 0.8), darkMat);
+            dash.position.set(0, 1.44, -L * 0.5 + 0.55);
+            busChassis.add(dash);
+
+            const dashGlow = new THREE.Mesh(
+                new THREE.PlaneGeometry(0.46, 0.18),
+                new THREE.MeshBasicMaterial({ color: 0x10b981 })
+            );
+            dashGlow.position.set(-0.68, 1.77, -L * 0.5 + 0.55);
+            dashGlow.rotation.x = -0.6;
+            busChassis.add(dashGlow);
+
+            // Рулевая колонка + вращающийся 3D-руль
+            const steerCol = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.45, 8), darkMat);
+            steerCol.position.set(-0.68, 1.66, -L * 0.5 + 0.72);
+            steerCol.rotation.x = 0.52;
+            busChassis.add(steerCol);
+
+            cabinWheelMesh = new THREE.Group();
+            const cRing = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.036, 8, 22), darkMat);
+            const cSpoke = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.05, 0.04), new THREE.MeshLambertMaterial({ color: 0x475569 }));
+            const cMark = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.05), yellowMat);
+            cMark.position.y = 0.28;
+            cabinWheelMesh.add(cRing, cSpoke, cMark);
+            cabinWheelMesh.position.set(-0.68, 1.84, -L * 0.5 + 0.84);
+            cabinWheelMesh.rotation.x = -Math.PI / 3.1;
+            busChassis.add(cabinWheelMesh);
+
+            // Салон: сиденья и жёлтые поручни (видны, если оглянуться назад в кабине!)
+            const seatMat = new THREE.MeshLambertMaterial({ color: 0x0284c7 });
+            const railMat = new THREE.MeshLambertMaterial({ color: 0xfacc15 });
+            for (let sz = -2.2; sz <= 4.1; sz += 1.25) {
+                // Левый ряд сидений
+                const sL = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.55, 0.52), seatMat);
+                sL.position.set(-0.78, 1.15, sz);
+                const backL = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.58, 0.12), seatMat);
+                backL.position.set(-0.78, 1.55, sz + 0.22);
+                busChassis.add(sL, backL);
+
+                // Правый ряд (где нет дверей)
+                if (sz > 1.2 || (sz > -2.5 && sz < -0.6)) {
+                    const sR = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.55, 0.52), seatMat);
+                    sR.position.set(0.78, 1.15, sz);
+                    const backR = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.58, 0.12), seatMat);
+                    backR.position.set(0.78, 1.55, sz + 0.22);
+                    busChassis.add(sR, backR);
+                }
+            }
+            // Продольные верхние и вертикальные жёлтые поручни
+            [-0.45, 0.45].forEach(rx => {
+                const topRail = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 7.6, 6), railMat);
+                topRail.rotation.x = Math.PI / 2;
+                topRail.position.set(rx, 2.74, 0.8);
+                busChassis.add(topRail);
+            });
+            [-2.4, -0.5, 1.5, 3.6].forEach(pz => {
+                const vRail = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 2.1, 6), railMat);
+                vRail.position.set(-0.45, 1.72, pz);
+                busChassis.add(vRail);
+            });
+            // Потолочные плафоны освещения салона
+            [-1.8, 0.8, 3.2].forEach(lz => {
+                const lamp = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.55, 0.04, 1.1),
+                    new THREE.MeshBasicMaterial({ color: 0xfef9c3 })
+                );
+                lamp.position.set(0, 2.93, lz);
+                busChassis.add(lamp);
+            });
+
+            // Передние фары
+            const headMat = new THREE.MeshBasicMaterial({ color: 0xfffbeb });
+            [-0.92, 0.92].forEach(hx => {
+                const hl = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.22, 0.08), headMat);
+                hl.position.set(hx, 0.96, -L * 0.5 - 0.02);
+                busChassis.add(hl);
+            });
+
+            // Стоп-сигналы и фонари заднего хода
+            [-0.95, 0.95].forEach(rx => {
+                const bMat = new THREE.MeshBasicMaterial({ color: 0x7f1d1d });
+                const brakeL = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.22, 0.08), bMat);
+                brakeL.position.set(rx, 1.05, L * 0.5 + 0.02);
+                busChassis.add(brakeL);
+                brakeLightMats.push(bMat);
+
+                const rMat = new THREE.MeshBasicMaterial({ color: 0x475569 });
+                const revL = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 0.08), rMat);
+                revL.position.set(rx * 0.65, 0.8, L * 0.5 + 0.02);
+                busChassis.add(revL);
+                reverseLightMats.push(rMat);
+            });
+
+            // Колёса крепятся прямо к busGroup (остаются на асфальте при работе подвески)
+            const tireGeo = new THREE.CylinderGeometry(0.54, 0.54, 0.36, 14);
+            tireGeo.rotateZ(Math.PI / 2);
+            const rimGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.38, 10);
+            rimGeo.rotateZ(Math.PI / 2);
+            const tireMat = new THREE.MeshLambertMaterial({ color: 0x171717 });
+            const rimMat = new THREE.MeshLambertMaterial({ color: 0xcbd5e1 });
+
+            [
+                { x: -W * 0.5 + 0.05, z: -3.25, front: true },
+                { x:  W * 0.5 - 0.05, z: -3.25, front: true },
+                { x: -W * 0.5 + 0.05, z:  3.0,  front: false },
+                { x:  W * 0.5 - 0.05, z:  3.0,  front: false }
+            ].forEach(w => {
+                const pivot = new THREE.Group();
+                pivot.position.set(w.x, 0.54, w.z);
+                const roller = new THREE.Group();
+                roller.add(new THREE.Mesh(tireGeo, tireMat), new THREE.Mesh(rimGeo, rimMat));
+                pivot.add(roller);
+                busGroup.add(pivot);
+                allWheelRollMeshes.push(roller);
+                if (w.front) frontWheelPivots.push(pivot);
+            });
+
+            busGroup.position.set(state.bus.x, 0, state.bus.z);
+            busGroup.rotation.y = state.bus.angle;
+            scene.add(busGroup);
+        }
+
+        function buildTraffic() {
+            const colors = [0xf8fafc, 0x3b82f6, 0xef4444, 0x64748b, 0xf59e0b, 0x1e293b];
+            const bodyGeo = new THREE.BoxGeometry(1.88, 0.72, 4.2);
+            const cabGeo = new THREE.BoxGeometry(1.6, 0.58, 2.2);
+            const cabMat = new THREE.MeshLambertMaterial({ color: 0x1e293b });
+
+            for (let i = 0; i < 18; i++) {
+                const oncoming = (i % 2 === 0);
+                const lane = oncoming ? (i % 4 === 0 ? -2.0 : -5.6) : 1.95;
+                const car = new THREE.Group();
+                const body = new THREE.Mesh(bodyGeo, new THREE.MeshLambertMaterial({ color: colors[i % colors.length] }));
+                body.position.y = 0.56;
+                const cab = new THREE.Mesh(cabGeo, cabMat);
+                cab.position.y = 1.18;
+                car.add(body, cab);
+                scene.add(car);
+
+                trafficCars.push({
+                    mesh: car,
+                    z: -160 - i * 142,
+                    lane,
+                    speed: oncoming ? -12.5 - (i % 4) : 10.5 + (i % 3),
+                    oncoming
+                });
+            }
+        }
+
+        // =========================================================================
+        // 7. МУЛЬТИТАЧ-УПРАВЛЕНИЕ: РУЛЬ, ПЕДАЛИ, АКПП, СВОБОДНАЯ КАМЕРА И КЛАВИАТУРА
+        // =========================================================================
+        function recenterCamera() {
+            if (state.cameraMode === 0) {
+                state.camera.extTargetYaw = 0;
+                state.camera.extTargetPitch = 0.24;
+                state.camera.extTargetDist = 12.2;
+            } else {
+                state.camera.cabTargetYaw = 0;
+                state.camera.cabTargetPitch = -0.04;
+            }
+        }
+
+        function setupControls() {
+            // --- 1. Свободное вращение камеры + зум двумя пальцами + двойной тап (строго по pointerId на canvas) ---
+            const canvas = document.getElementById('game-canvas');
+            const activeCanvasPointers = new Map();
+            let lastPinchDist = null;
+            let lastTapTime = 0;
+            let tapCandidate = null;
+
+            canvas.addEventListener('pointerdown', (e) => {
+                if (!state.started) return;
+                e.preventDefault();
+                canvas.setPointerCapture(e.pointerId);
+                activeCanvasPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+                if (activeCanvasPointers.size === 1) {
+                    tapCandidate = { id: e.pointerId, startX: e.clientX, startY: e.clientY, time: performance.now(), moved: false };
+                    lastPinchDist = null;
+                } else if (activeCanvasPointers.size === 2) {
+                    tapCandidate = null;
+                    const pts = Array.from(activeCanvasPointers.values());
+                    lastPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+                }
+            }, { passive: false });
+
+            canvas.addEventListener('pointermove', (e) => {
+                if (!activeCanvasPointers.has(e.pointerId)) return;
+                e.preventDefault();
+                const prev = activeCanvasPointers.get(e.pointerId);
+                const dx = e.clientX - prev.x;
+                const dy = e.clientY - prev.y;
+                activeCanvasPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+                if (tapCandidate && tapCandidate.id === e.pointerId) {
+                    if (Math.hypot(e.clientX - tapCandidate.startX, e.clientY - tapCandidate.startY) > 12) {
+                        tapCandidate.moved = true;
+                    }
+                }
+
+                if (activeCanvasPointers.size === 1) {
+                    const sensYaw = state.cameraMode === 0 ? 0.0062 : 0.0046;
+                    const sensPitch = state.cameraMode === 0 ? 0.0046 : 0.0038;
+
+                    if (state.cameraMode === 0) {
+                        // Полный круговой 360° обзор вокруг автобуса
+                        state.camera.extTargetYaw -= dx * sensYaw;
+                        state.camera.extTargetPitch = Math.max(0.06, Math.min(1.18, state.camera.extTargetPitch + dy * sensPitch));
+                    } else {
+                        // Обзор головой в кабине: влево/вправо до зеркал и салона, вверх/вниз
+                        state.camera.cabTargetYaw = Math.max(-2.65, Math.min(2.65, state.camera.cabTargetYaw - dx * sensYaw));
+                        state.camera.cabTargetPitch = Math.max(-0.55, Math.min(0.62, state.camera.cabTargetPitch - dy * sensPitch));
+                    }
+                } else if (activeCanvasPointers.size === 2 && state.cameraMode === 0) {
+                    const pts = Array.from(activeCanvasPointers.values());
+                    const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+                    if (lastPinchDist !== null) {
+                        const delta = dist - lastPinchDist;
+                        state.camera.extTargetDist = Math.max(6.8, Math.min(24.0, state.camera.extTargetDist - delta * 0.032));
+                    }
+                    lastPinchDist = dist;
+                }
+            }, { passive: false });
+
+            function releaseCanvasPointer(e) {
+                if (!activeCanvasPointers.has(e.pointerId)) return;
+                activeCanvasPointers.delete(e.pointerId);
+
+                if (tapCandidate && tapCandidate.id === e.pointerId) {
+                    const now = performance.now();
+                    if (!tapCandidate.moved && (now - tapCandidate.time) < 260) {
+                        if (now - lastTapTime < 340) {
+                            recenterCamera();
+                            lastTapTime = 0;
+                        } else {
+                            lastTapTime = now;
+                        }
+                    }
+                    tapCandidate = null;
+                }
+
+                if (activeCanvasPointers.size < 2) {
+                    lastPinchDist = null;
+                }
+            }
+            canvas.addEventListener('pointerup', releaseCanvasPointer);
+            canvas.addEventListener('pointercancel', releaseCanvasPointer);
+
+            // Колёсико мыши на ПК — приближение/отдаление во внешнем виде
+            canvas.addEventListener('wheel', (e) => {
+                if (!state.started || state.cameraMode !== 0) return;
+                e.preventDefault();
+                state.camera.extTargetDist = Math.max(6.8, Math.min(24.0, state.camera.extTargetDist + e.deltaY * 0.01));
+            }, { passive: false });
+
+            // --- 2. Интерактивный руль (multi-touch по pointerId) ---
+            const steerZone = document.getElementById('steering-zone');
+            let steerPointerId = null;
+            let lastAngle = 0;
+            let lastClientX = 0;
+            let centerX = 0;
+            let centerY = 0;
+
+            function normalizeAngleDelta(a) {
+                while (a > Math.PI) a -= Math.PI * 2;
+                while (a < -Math.PI) a += Math.PI * 2;
+                return a;
+            }
+
+            steerZone.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (steerPointerId !== null) return;
+                busAudio.start();
+                steerPointerId = e.pointerId;
+                steerZone.setPointerCapture(e.pointerId);
+
+                const rect = steerZone.getBoundingClientRect();
+                centerX = rect.left + rect.width * 0.5;
+                centerY = rect.top + rect.height * 0.5;
+                lastAngle = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+                lastClientX = e.clientX;
+                state.input.steeringTouchActive = true;
+            }, { passive: false });
+
+            steerZone.addEventListener('pointermove', (e) => {
+                if (e.pointerId !== steerPointerId) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                const dx = e.clientX - centerX;
+                const dy = e.clientY - centerY;
+                const dist = Math.hypot(dx, dy);
+
+                let degDelta = 0;
+                if (dist > 20) {
+                    const currAngle = Math.atan2(dy, dx);
+                    const deltaRad = normalizeAngleDelta(currAngle - lastAngle);
+                    lastAngle = currAngle;
+                    degDelta = (deltaRad * 180 / Math.PI) * 1.35;
+                } else {
+                    degDelta = (e.clientX - lastClientX) * 2.6;
+                }
+                lastClientX = e.clientX;
+
+                state.bus.wheelVisualDeg = Math.max(-450, Math.min(450, state.bus.wheelVisualDeg + degDelta));
+                state.input.steerTouchValue = -state.bus.wheelVisualDeg / 450;
+            }, { passive: false });
+
+            function releaseSteer(e) {
+                if (e.pointerId !== steerPointerId) return;
+                steerPointerId = null;
+                state.input.steeringTouchActive = false;
+            }
+            steerZone.addEventListener('pointerup', releaseSteer);
+            steerZone.addEventListener('pointercancel', releaseSteer);
+
+            // --- 3. Педали Газа и Тормоза (независимые pointerId) ---
+            function bindPedal(el, keyName) {
+                let activePid = null;
+                el.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    busAudio.start();
+                    activePid = e.pointerId;
+                    el.setPointerCapture(e.pointerId);
+                    state.input[keyName] = true;
+                    el.classList.add('pressed');
+                }, { passive: false });
+
+                const release = (e) => {
+                    if (e.pointerId !== activePid) return;
+                    activePid = null;
+                    state.input[keyName] = false;
+                    el.classList.remove('pressed');
+                };
+                el.addEventListener('pointerup', release);
+                el.addEventListener('pointercancel', release);
+            }
+            bindPedal(document.getElementById('pedal-gas'), 'gasTouch');
+            bindPedal(document.getElementById('pedal-brake'), 'brakeTouch');
+
+            // --- 4. Селектор АКПП (D / N / R) ---
+            ['D', 'N', 'R'].forEach(g => {
+                const btn = document.getElementById(`gear-${g}`);
+                btn.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    busAudio.start();
+                    setGear(g);
+                }, { passive: false });
+            });
+
+            // --- 5. Кнопки Дверей, Камеры, Звука, Повтора объявления, Старта и Рестарта ---
+            document.getElementById('door-action-btn').addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleDoors();
+            }, { passive: false });
+
+            document.getElementById('btn-camera').addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                state.cameraMode = (state.cameraMode + 1) % 2;
+            }, { passive: false });
+
+            document.getElementById('btn-sound').addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                state.muted = !state.muted;
+                busAudio.setMuted(state.muted);
+                informator.setMuted(state.muted);
+                document.getElementById('btn-sound').textContent = state.muted ? '🔇' : '🔊';
+            }, { passive: false });
+
+            document.getElementById('stop-pill').addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!state.started) return;
+                const inZone = getActiveStopInZone();
+                const nextStop = getNextRouteStop();
+                informator.replayCurrent(nextStop, inZone ? inZone.stop : null);
+            }, { passive: false });
+
+            document.getElementById('btn-start').addEventListener('click', startGame);
+            document.getElementById('btn-restart').addEventListener('click', restartGame);
+
+            // --- 6. Поддержка клавиатуры для ПК ---
+            window.addEventListener('keydown', (e) => {
+                if (!state.started && (e.code === 'Space' || e.code === 'Enter')) {
+                    startGame();
+                    return;
+                }
+                if (e.code === 'KeyW' || e.code === 'ArrowUp') {
+                    state.input.gasKey = true;
+                    document.getElementById('pedal-gas').classList.add('pressed');
+                }
+                if (e.code === 'KeyS' || e.code === 'ArrowDown') {
+                    state.input.brakeKey = true;
+                    document.getElementById('pedal-brake').classList.add('pressed');
+                }
+                if (e.code === 'KeyA' || e.code === 'ArrowLeft') state.input.leftKey = true;
+                if (e.code === 'KeyD' || e.code === 'ArrowRight') state.input.rightKey = true;
+                if (e.code === 'Digit1') setGear('D');
+                if (e.code === 'Digit2') setGear('N');
+                if (e.code === 'Digit3') setGear('R');
+                if (e.code === 'KeyE' || e.code === 'KeyO' || e.code === 'Space') toggleDoors();
+                if (e.code === 'KeyC') state.cameraMode = (state.cameraMode + 1) % 2;
+                if (e.code === 'KeyR') recenterCamera();
+            });
+
+            window.addEventListener('keyup', (e) => {
+                if (e.code === 'KeyW' || e.code === 'ArrowUp') {
+                    state.input.gasKey = false;
+                    if (!state.input.gasTouch) document.getElementById('pedal-gas').classList.remove('pressed');
+                }
+                if (e.code === 'KeyS' || e.code === 'ArrowDown') {
+                    state.input.brakeKey = false;
+                    if (!state.input.brakeTouch) document.getElementById('pedal-brake').classList.remove('pressed');
+                }
+                if (e.code === 'KeyA' || e.code === 'ArrowLeft') state.input.leftKey = false;
+                if (e.code === 'KeyD' || e.code === 'ArrowRight') state.input.rightKey = false;
+            });
+        }
+
+        function setGear(target) {
+            const speedKmh = Math.abs(state.bus.speed) * 3.6;
+            // Защита АКПП от включения R на ходу вперёд и наоборот
+            if ((target === 'R' && state.bus.speed > 1.8) || (target === 'D' && state.bus.speed < -1.8)) {
+                return;
+            }
+            if (speedKmh > 6.5 && ((state.gear === 'D' && target === 'R') || (state.gear === 'R' && target === 'D'))) {
+                return;
+            }
+            state.gear = target;
+            ['D', 'N', 'R'].forEach(g => {
+                const el = document.getElementById(`gear-${g}`);
+                el.className = 'gear-btn' + (g === target ? ` active-${g}` : '');
+            });
+        }
+
+        function startGame() {
+            busAudio.start();
+            informator.unlock();
+            state.started = true;
+
+            const ov = document.getElementById('start-overlay');
+            ov.style.opacity = '0';
+            setTimeout(() => { ov.style.display = 'none'; }, 480);
+
+            ['top-bar', 'top-right-btns', 'speed-hud', 'steering-zone', 'right-controls'].forEach(id => {
+                const el = document.getElementById(id);
+                el.classList.remove('opacity-0', 'pointer-events-none');
+            });
+
+            // Приветственное объявление автоинформатора маршрута №32
+            setTimeout(() => {
+                informator.announceStart();
+            }, 350);
+        }
+
+        function restartGame() {
+            state.finished = false;
+            state.gear = 'D';
+            state.autoGearIdx = 0;
+            setGear('D');
+
+            const p0 = roadPoint(START_Z, HALF_ROAD - 2.2);
+            state.bus.x = p0.x;
+            state.bus.z = p0.z;
+            state.bus.angle = p0.angle;
+            state.bus.speed = 0;
+            state.bus.accelSmooth = 0;
+            state.bus.latAccelSmooth = 0;
+            state.bus.brakePressure = 0;
+            state.bus.steerTarget = 0;
+            state.bus.steerActuator = 0;
+            state.bus.wheelVisualDeg = 0;
+            state.bus.pitch = 0;
+            state.bus.roll = 0;
+            state.bus.doorsOpen = false;
+            state.bus.doorAnim = 0;
+
+            state.currentStopIdx = 0;
+            state.servedStops.clear();
+            state.passengersInside = 0;
+            state.totalPassengers = 0;
+            state.lastOpenedStopId = -1;
+            informator.reminderPlayed = false;
+            recenterCamera();
+
+            stopEntries.forEach(entry => {
+                entry.zoneMesh.material.opacity = 1;
+                entry.passengers.forEach(pax => {
+                    pax.boarding = false;
+                    pax.boarded = false;
+                    pax.mesh.visible = true;
+                    pax.mesh.position.set(pax.homeX, 0.18, pax.homeZ);
+                });
+            });
+
+            const fin = document.getElementById('finish-overlay');
+            fin.classList.add('hidden');
+            fin.classList.remove('flex');
+
+            setTimeout(() => informator.announceStart(), 350);
+        }
+
+        function getActiveStopInZone() {
+            const busZ = state.bus.z;
+            const lateral = state.bus.x - roadCenterX(busZ);
+            if (lateral < 1.8) return null;
+            for (let i = 0; i < stopEntries.length; i++) {
+                if (Math.abs(busZ - stopEntries[i].stop.z) < 13.0) {
+                    return stopEntries[i];
+                }
+            }
+            return null;
+        }
+
+        function getNextRouteStop() {
+            for (let i = 0; i < ROUTE_STOPS.length; i++) {
+                if (!state.servedStops.has(i) && ROUTE_STOPS[i].z < state.bus.z + 14) {
+                    return ROUTE_STOPS[i];
+                }
+            }
+            return ROUTE_STOPS[ROUTE_STOPS.length - 1];
+        }
+
+        function toggleDoors() {
+            if (!state.started || Math.abs(state.bus.speed) > 0.6) return;
+            const entry = getActiveStopInZone();
+            if (!state.bus.doorsOpen && !entry) return;
+
+            state.bus.doorsOpen = !state.bus.doorsOpen;
+            busAudio.playDoorSound(state.bus.doorsOpen);
+
+            const label = document.getElementById('door-btn-text');
+            label.textContent = state.bus.doorsOpen ? 'Закрыть двери' : 'Открыть двери';
+
+            if (state.bus.doorsOpen && entry) {
+                state.lastOpenedStopId = entry.stop.id;
+                informator.announceArrival(entry.stop);
+
+                if (!state.servedStops.has(entry.stop.id)) {
+                    state.servedStops.add(entry.stop.id);
+                    entry.zoneMesh.material.opacity = 0.25;
+
+                    if (entry.stop.id === ROUTE_STOPS.length - 1) {
+                        state.passengersInside = 0;
+                        setTimeout(showFinishScreen, 3600);
+                    } else if (state.passengersInside > 0) {
+                        state.passengersInside = Math.max(0, state.passengersInside - (1 + (entry.stop.id % 4)));
+                    }
+
+                    entry.passengers.forEach((pax, idx) => {
+                        setTimeout(() => { pax.boarding = true; }, idx * 200);
+                    });
+
+                    if (entry.stop.id + 1 < ROUTE_STOPS.length) {
+                        state.currentStopIdx = entry.stop.id + 1;
+                    }
+                }
+            } else if (!state.bus.doorsOpen) {
+                // Закрытие дверей — объявляем следующую остановку
+                const nextId = state.lastOpenedStopId + 1;
+                if (nextId > 0 && nextId < ROUTE_STOPS.length) {
+                    informator.announceDeparture(ROUTE_STOPS[nextId]);
+
+                    // В середине маршрута (после Драмтеатра) — напоминание пассажирам
+                    if (state.lastOpenedStopId === 4 && !informator.reminderPlayed) {
+                        setTimeout(() => {
+                            if (state.started && !state.finished && !state.bus.doorsOpen) {
+                                informator.announceReminder();
+                            }
+                        }, 8500);
+                    }
+                }
+            }
+        }
+
+        function showFinishScreen() {
+            if (state.finished) return;
+            state.finished = true;
+            document.getElementById('final-stops').textContent = `${state.servedStops.size} / ${ROUTE_STOPS.length}`;
+            document.getElementById('final-pax').textContent = `${state.totalPassengers}`;
+            const fin = document.getElementById('finish-overlay');
+            fin.classList.remove('hidden');
+            fin.classList.add('flex');
+        }
+
+        // =========================================================================
+        // 8. ТЯЖЁЛАЯ ФИЗИКА АВТОБУСА, ПОДВЕСКА, КАМЕРА И ОБНОВЛЕНИЕ HUD
+        // =========================================================================
+        const wheelVisualEl = document.getElementById('steering-wheel-visual');
+        const speedDigitsEl = document.getElementById('speed-digits');
+        const hudGearBadgeEl = document.getElementById('hud-gear-badge');
+        const stopInfoEl = document.getElementById('stop-info-text');
+        const doorBtnEl = document.getElementById('door-action-btn');
+
+        const tmpCamVec = new THREE.Vector3();
+        const tmpLookVec = new THREE.Vector3();
+
+        function updateSimulation(dt) {
+            const bus = state.bus;
+            const gas = state.input.gasTouch || state.input.gasKey;
+            const brake = state.input.brakeTouch || state.input.brakeKey;
+            const prevSpeed = bus.speed;
+
+            // --- 1. Плавное гидравлическое рулевое управление ---
+            if (state.input.steeringTouchActive) {
+                bus.steerTarget = state.input.steerTouchValue;
+            } else if (state.input.leftKey || state.input.rightKey) {
+                const dir = (state.input.leftKey ? 1 : 0) - (state.input.rightKey ? 1 : 0);
+                // Плавное вращение баранки с клавиатуры (без рывков)
+                bus.steerTarget = Math.max(-1, Math.min(1, bus.steerTarget + dir * 1.45 * dt));
+                bus.wheelVisualDeg = -bus.steerTarget * 450;
+            } else {
+                // Плавный самовозврат руля в ноль (усиливается с ростом скорости)
+                const returnRate = 1.65 + Math.min(Math.abs(bus.speed) * 0.28, 3.2);
+                const decay = Math.exp(-returnRate * dt);
+                bus.steerTarget *= decay;
+                if (Math.abs(bus.steerTarget) < 0.004) bus.steerTarget = 0;
+                bus.wheelVisualDeg = -bus.steerTarget * 450;
+            }
+
+            // Гидравлический демпфер рулевого механизма — убирает резкие дёрганья
+            bus.steerActuator += (bus.steerTarget - bus.steerActuator) * (1 - Math.exp(-5.8 * dt));
+
+            wheelVisualEl.style.transform = `rotate(${bus.wheelVisualDeg.toFixed(1)}deg)`;
+            if (cabinWheelMesh) {
+                cabinWheelMesh.rotation.z = -bus.wheelVisualDeg * Math.PI / 180;
+            }
+            frontWheelPivots.forEach(p => { p.rotation.y = bus.steerActuator * 0.48; });
+
+            // --- 2. Прогрессивные пневматические тормоза ---
+            if (brake || bus.doorsOpen) {
+                const rampRate = bus.doorsOpen ? 3.5 : 2.35;
+                bus.brakePressure = Math.min(1, bus.brakePressure + rampRate * dt);
+                bus.peakBrakeHeld = Math.max(bus.peakBrakeHeld, bus.brakePressure);
+                if (Math.abs(bus.speed) > 0.5) bus.wasStoppingBrake = true;
+            } else {
+                // Пшик пневматики при отпускании хорошо нажатой педали тормоза
+                if (bus.peakBrakeHeld > 0.42 && bus.brakePressure > 0.25) {
+                    busAudio.playAirHiss(0.32, 1480, 0.09);
+                    bus.peakBrakeHeld = 0;
+                }
+                bus.brakePressure = Math.max(0, bus.brakePressure - 3.4 * dt);
+                if (bus.brakePressure < 0.05) bus.wasStoppingBrake = false;
+            }
+
+            // --- 3. Продольная динамика тяжёлого автобуса и 5-ступенчатая АКПП ---
+            const speedKmh = Math.abs(bus.speed) * 3.6;
+            let rpmNorm = 0.05;
+
+            if (!state.started) {
+                bus.speed = 0;
+            } else {
+                // Низкое сопротивление качению + мягкое аэродинамическое сопротивление (высокая инерция!)
+                const rollingDrag = 0.088;
+                const aeroDrag = 0.00046 * bus.speed * bus.speed;
+                const passiveDrag = rollingDrag + aeroDrag;
+
+                let netAccel = 0;
+
+                if (bus.doorsOpen) {
+                    // Остановочный тормоз блокирует движение при открытых дверях
+                    const holdDecel = 5.0;
+                    if (Math.abs(bus.speed) <= holdDecel * dt) bus.speed = 0;
+                    else bus.speed -= Math.sign(bus.speed) * holdDecel * dt;
+                    rpmNorm = 0.04;
+                } else {
+                    // Работа 5-ступенчатой автоматической коробки в режиме D
+                    if (state.gear === 'D') {
+                        const cur = AUTO_GEARS[state.autoGearIdx];
+                        if (speedKmh > cur.maxKmh && state.autoGearIdx < AUTO_GEARS.length - 1) {
+                            state.autoGearIdx++;
+                            state.shiftPauseTimer = 0.16; // Мягкий момент переключения передачи
+                        } else if (speedKmh < cur.minKmh && state.autoGearIdx > 0) {
+                            state.autoGearIdx--;
+                        }
+
+                        if (state.shiftPauseTimer > 0) {
+                            state.shiftPauseTimer = Math.max(0, state.shiftPauseTimer - dt);
+                        }
+
+                        const activeGear = AUTO_GEARS[state.autoGearIdx];
+                        const maxFwdMs = 58 / 3.6; // ~16.11 м/с (городской лимит 58 км/ч)
+
+                        // Расчёт оборотов двигателя для звука дизеля
+                        const gearSpan = Math.max(8, activeGear.maxKmh - activeGear.minKmh);
+                        const gearProgress = Math.max(0, Math.min(1, (speedKmh - activeGear.minKmh) / gearSpan));
+                        rpmNorm = 0.14 + gearProgress * 0.68 + (gas ? 0.15 : 0) - (state.shiftPauseTimer > 0 ? 0.18 : 0);
+
+                        if (bus.brakePressure > 0.02) {
+                            // Прогрессивное пневматическое торможение (не включает задний ход)
+                            const brakeDecel = bus.brakePressure * 4.45 + passiveDrag;
+                            if (Math.abs(bus.speed) <= brakeDecel * dt) {
+                                if (bus.wasStoppingBrake && Math.abs(bus.speed) > 0.05) {
+                                    busAudio.playAirHiss(0.28, 1280, 0.085);
+                                    bus.wasStoppingBrake = false;
+                                }
+                                bus.speed = 0;
+                            } else {
+                                bus.speed -= Math.sign(bus.speed) * brakeDecel * dt;
+                            }
+                        } else if (gas) {
+                            // Плавный прогрессивный разгон (0–50 км/ч за ~16–18 секунд)
+                            const shiftFactor = state.shiftPauseTimer > 0 ? 0.35 : 1.0;
+                            const speedCapFactor = Math.max(0, 1 - Math.pow(Math.max(0, bus.speed) / (maxFwdMs * 1.03), 3));
+                            netAccel = activeGear.accel * shiftFactor * speedCapFactor - passiveDrag;
+                            bus.speed = Math.min(maxFwdMs, bus.speed + netAccel * dt);
+                        } else {
+                            // Высокая инерция: долгий плавный выбег + лёгкий ползучий ход АКПП до ~4.8 км/ч
+                            if (bus.speed < 1.32) {
+                                bus.speed = Math.min(1.32, bus.speed + 0.38 * dt);
+                            } else {
+                                bus.speed = Math.max(0, bus.speed - passiveDrag * dt);
+                            }
+                        }
+                    } else if (state.gear === 'R') {
+                        const maxRevMs = -15 / 3.6; // ~4.17 м/с (~15 км/ч)
+                        rpmNorm = 0.14 + Math.min(1, speedKmh / 15) * 0.55 + (gas ? 0.16 : 0);
+
+                        if (bus.brakePressure > 0.02) {
+                            const brakeDecel = bus.brakePressure * 4.45 + passiveDrag;
+                            if (Math.abs(bus.speed) <= brakeDecel * dt) {
+                                if (bus.wasStoppingBrake && Math.abs(bus.speed) > 0.05) {
+                                    busAudio.playAirHiss(0.26, 1280, 0.08);
+                                    bus.wasStoppingBrake = false;
+                                }
+                                bus.speed = 0;
+                            } else {
+                                bus.speed -= Math.sign(bus.speed) * brakeDecel * dt;
+                            }
+                        } else if (gas) {
+                            const revCap = Math.max(0, 1 - Math.abs(bus.speed) / Math.abs(maxRevMs));
+                            bus.speed = Math.max(maxRevMs, bus.speed - (0.95 * revCap + 0.18) * dt);
+                        } else {
+                            // Лёгкий ползучий ход назад до ~3.2 км/ч или плавный выбег
+                            if (bus.speed > -0.9) {
+                                bus.speed = Math.max(-0.9, bus.speed - 0.32 * dt);
+                            } else {
+                                bus.speed = Math.min(0, bus.speed + passiveDrag * dt);
+                            }
+                        }
+                    } else {
+                        // Режим N (нейтраль): свободный инерционный накат
+                        rpmNorm = gas ? 0.45 : 0.06;
+                        const decel = (bus.brakePressure * 4.45) + passiveDrag;
+                        if (Math.abs(bus.speed) <= decel * dt) {
+                            bus.speed = 0;
+                        } else {
+                            bus.speed -= Math.sign(bus.speed) * decel * dt;
+                        }
+                    }
+                }
+            }
+
+            // --- 4. Поворот с чувствительностью к скорости и физика подвески (клевок + крен) ---
+            let yawRate = 0;
+            if (Math.abs(bus.speed) > 0.04) {
+                const dir = bus.speed >= 0 ? 1 : -1;
+                // При высокой скорости угол поворота становится мягче для устойчивости
+                const speedSensitivity = 1.0 / (1 + Math.abs(bus.speed) * 0.048);
+                const lowSpeedScale = Math.min(Math.abs(bus.speed) / 5.2, 1.0);
+                yawRate = bus.steerActuator * dir * lowSpeedScale * speedSensitivity * 0.92;
+                bus.angle += yawRate * dt;
+            }
+
+            bus.x -= Math.sin(bus.angle) * bus.speed * dt;
+            bus.z -= Math.cos(bus.angle) * bus.speed * dt;
+
+            // Мягкое удержание на проезжей части вдоль бордюров
+            if (bus.z > 20) { bus.z = 20; bus.speed = 0; }
+            if (bus.z < END_Z) { bus.z = END_Z; bus.speed = 0; }
+
+            const cx = roadCenterX(bus.z);
+            const rAng = roadAngle(bus.z);
+            const lateral = bus.x - cx;
+            const maxLat = HALF_ROAD - 1.38;
+            if (lateral > maxLat) {
+                bus.x = cx + maxLat;
+                bus.angle += (rAng - bus.angle) * 0.16;
+                bus.speed *= 0.92;
+            } else if (lateral < -maxLat) {
+                bus.x = cx - maxLat;
+                bus.angle += (rAng - bus.angle) * 0.16;
+                bus.speed *= 0.92;
+            }
+
+            // Подвеска кузова (клевок носом при торможении, приседание на разгоне, крен в поворотах)
+            const instAccel = (bus.speed - prevSpeed) / Math.max(dt, 0.001);
+            const clampedAccel = Math.max(-5.5, Math.min(3.0, instAccel));
+            bus.accelSmooth += (clampedAccel - bus.accelSmooth) * (1 - Math.exp(-5.5 * dt));
+
+            const instLatAccel = bus.speed * yawRate;
+            bus.latAccelSmooth += (instLatAccel - bus.latAccelSmooth) * (1 - Math.exp(-4.8 * dt));
+
+            // Положительный rotation.x задирает нос (-Z вверх), отрицательный — клюёт носом вниз
+            const targetPitch = Math.max(-0.028, Math.min(0.018, bus.accelSmooth * 0.0062));
+            // Крен наружу поворота
+            const targetRoll = Math.max(-0.036, Math.min(0.036, -bus.latAccelSmooth * 0.0075));
+
+            bus.pitch += (targetPitch - bus.pitch) * (1 - Math.exp(-6.2 * dt));
+            bus.roll += (targetRoll - bus.roll) * (1 - Math.exp(-5.5 * dt));
+
+            // Лёгкая дорожная микровибрация пневмоподвески в движении
+            const roadMicroBounce = Math.abs(bus.speed) > 0.3
+                ? Math.sin(clock.elapsedTime * (5 + Math.abs(bus.speed) * 0.5)) * 0.009 * Math.min(1, Math.abs(bus.speed) / 8)
+                : 0;
+
+            busGroup.position.set(bus.x, 0, bus.z);
+            busGroup.rotation.y = bus.angle;
+            busChassis.rotation.x = bus.pitch;
+            busChassis.rotation.z = bus.roll;
+            busChassis.position.y = roadMicroBounce;
+
+            allWheelRollMeshes.forEach(w => { w.rotation.x -= bus.speed * dt * 1.85; });
+
+            // Анимация сдвижных дверей
+            const targetDoor = bus.doorsOpen ? 1 : 0;
+            bus.doorAnim += (targetDoor - bus.doorAnim) * Math.min(1, 5.5 * dt);
+            doorMeshes.forEach(d => {
+                d.position.x = d.userData.baseX + bus.doorAnim * 0.14;
+                d.position.z = d.userData.baseZ + bus.doorAnim * 1.12;
+            });
+
+            // Стоп-сигналы и фонари заднего хода
+            const brakingNow = bus.brakePressure > 0.08 || bus.doorsOpen;
+            brakeLightMats.forEach(m => m.color.setHex(brakingNow ? 0xff2222 : 0x7f1d1d));
+            reverseLightMats.forEach(m => m.color.setHex(state.gear === 'R' ? 0xffffff : 0x475569));
+
+            // --- 5. Посадка пассажиров на остановках ---
+            const doorWorld = new THREE.Vector3(1.4, 0, -2.2).applyAxisAngle(new THREE.Vector3(0, 1, 0), bus.angle);
+            const targetDoorX = bus.x + doorWorld.x;
+            const targetDoorZ = bus.z + doorWorld.z;
+
+            stopEntries.forEach(entry => {
+                entry.passengers.forEach(pax => {
+                    if (pax.boarding && !pax.boarded) {
+                        const dx = targetDoorX - pax.mesh.position.x;
+                        const dz = targetDoorZ - pax.mesh.position.z;
+                        const dist = Math.hypot(dx, dz);
+                        if (dist < 0.78) {
+                            pax.boarded = true;
+                            pax.boarding = false;
+                            pax.mesh.visible = false;
+                            state.passengersInside++;
+                            state.totalPassengers++;
+                            busAudio.playBoardChime();
+                        } else {
+                            const stepMove = Math.min(dist, 2.5 * dt);
+                            pax.mesh.position.x += (dx / dist) * stepMove;
+                            pax.mesh.position.z += (dz / dist) * stepMove;
+                            pax.mesh.position.y = 0.18 + Math.abs(Math.sin(clock.elapsedTime * 10)) * 0.085;
+                        }
+                    }
+                });
+            });
+
+            // --- 6. Движение трафика и облаков ---
+            trafficCars.forEach(car => {
+                car.z -= car.speed * dt;
+                if (car.oncoming && car.z > 40) car.z = -2740;
+                if (!car.oncoming && car.z < -2740) car.z = 35;
+
+                const p = roadPoint(car.z, car.lane);
+                car.mesh.position.set(p.x, 0, p.z);
+                car.mesh.rotation.y = p.angle + (car.oncoming ? Math.PI : 0);
+            });
+
+            cloudMeshes.forEach((c, idx) => {
+                c.position.x += (0.45 + (idx % 3) * 0.22) * dt;
+            });
+            const skyDome = scene.getObjectByName('skyDome');
+            if (skyDome) skyDome.position.set(bus.x, 0, bus.z);
+
+            sunLight.position.set(bus.x + 42, 72, bus.z + 32);
+            sunLight.target.position.set(bus.x, 0, bus.z - 12);
+
+            // --- 7. Обновление свободной камеры ---
+            updateCamera(dt);
+
+            // --- 8. Звук двигателя и минималистичный HUD ---
+            busAudio.updateEngine(rpmNorm, gas, state.gear);
+            speedDigitsEl.textContent = Math.round(speedKmh);
+
+            if (state.gear === 'D') {
+                hudGearBadgeEl.textContent = `D${state.autoGearIdx + 1}`;
+                hudGearBadgeEl.className = 'font-mono font-extrabold text-xs px-1.5 py-0.5 rounded-md bg-emerald-500/25 text-emerald-300 border border-emerald-400/40 self-center';
+            } else if (state.gear === 'R') {
+                hudGearBadgeEl.textContent = 'R';
+                hudGearBadgeEl.className = 'font-mono font-extrabold text-xs px-1.5 py-0.5 rounded-md bg-rose-500/25 text-rose-300 border border-rose-400/40 self-center';
+            } else {
+                hudGearBadgeEl.textContent = 'N';
+                hudGearBadgeEl.className = 'font-mono font-extrabold text-xs px-1.5 py-0.5 rounded-md bg-amber-500/25 text-amber-300 border border-amber-400/40 self-center';
+            }
+
+            const nextStop = getNextRouteStop();
+            const distM = Math.max(0, Math.round(bus.z - nextStop.z));
+            stopInfoEl.textContent = distM <= 12 ? `${nextStop.name} · на месте` : `${nextStop.name} · ${distM} м`;
+
+            const inZone = getActiveStopInZone();
+            const showDoorBtn = state.started && (bus.doorsOpen || (inZone && Math.abs(bus.speed) < 0.6 && !state.servedStops.has(inZone.stop.id)));
+            if (showDoorBtn) {
+                doorBtnEl.classList.remove('hidden-btn');
+                document.getElementById('door-btn-text').textContent = bus.doorsOpen ? 'Закрыть двери' : 'Открыть двери';
+            } else {
+                doorBtnEl.classList.add('hidden-btn');
+            }
+        }
+
+        function updateCamera(dt) {
+            const bus = state.bus;
+            const cam = state.camera;
+
+            if (!state.started) {
+                const t = clock.elapsedTime * 0.25;
+                camera.position.set(bus.x + Math.sin(t) * 13.5, 4.9, bus.z + Math.cos(t) * 13.5);
+                camera.lookAt(bus.x, 2.0, bus.z - 1.5);
+                return;
+            }
+
+            const damp = 1 - Math.exp(-10.5 * dt);
+
+            if (state.cameraMode === 0) {
+                // Плавное демпфирование свободной 360° орбиты без принудительного возврата
+                cam.extYaw += (cam.extTargetYaw - cam.extYaw) * damp;
+                cam.extPitch += (cam.extTargetPitch - cam.extPitch) * damp;
+                cam.extDist += (cam.extTargetDist - cam.extDist) * damp;
+
+                const worldYaw = bus.angle + cam.extYaw;
+                const horiz = Math.cos(cam.extPitch) * cam.extDist;
+                const vert = Math.sin(cam.extPitch) * cam.extDist;
+
+                const targetX = bus.x + Math.sin(worldYaw) * horiz;
+                const targetY = Math.max(0.85, 2.1 + vert);
+                const targetZ = bus.z + Math.cos(worldYaw) * horiz;
+
+                camera.position.set(targetX, targetY, targetZ);
+                camera.lookAt(bus.x, 2.1, bus.z);
+            } else {
+                // Вид из кабины водителя: плавный обзор зеркал, окон и пассажирского салона + работа подвески
+                cam.cabYaw += (cam.cabTargetYaw - cam.cabYaw) * damp;
+                cam.cabPitch += (cam.cabTargetPitch - cam.cabPitch) * damp;
+
+                busGroup.updateMatrixWorld(true);
+                tmpCamVec.set(-0.68, 2.34, -4.28);
+                busChassis.localToWorld(tmpCamVec);
+                camera.position.copy(tmpCamVec);
+
+                // Направление взгляда относительно кабины
+                const lookDist = 18;
+                const lx = -Math.sin(cam.cabYaw) * Math.cos(cam.cabPitch) * lookDist;
+                const ly = Math.sin(cam.cabPitch) * lookDist;
+                const lz = -Math.cos(cam.cabYaw) * Math.cos(cam.cabPitch) * lookDist;
+
+                tmpLookVec.set(-0.68 + lx, 2.34 + ly, -4.28 + lz);
+                busChassis.localToWorld(tmpLookVec);
+                camera.lookAt(tmpLookVec);
+            }
+        }
+
+        function onResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = Math.min(clock.getDelta(), 0.08);
+            updateSimulation(dt);
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function () {
+            informator.initDOM();
+            initScene();
+            setupControls();
+            animate();
+        };
+    })();
+    </script>
+</body>
+</html>
